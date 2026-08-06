@@ -11,7 +11,21 @@ struct ManagedWindow {
     let element: AXUIElement
 
     var tabTitle: String {
-        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedTitle.isEmpty ? appName : trimmedTitle
+        let trimmedAppName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedWindowTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if isGoogleChrome, !trimmedAppName.isEmpty, !trimmedWindowTitle.isEmpty {
+            return "\(trimmedAppName)：\(trimmedWindowTitle)"
+        }
+
+        if !trimmedAppName.isEmpty {
+            return trimmedAppName
+        }
+
+        return trimmedWindowTitle
+    }
+
+    private var isGoogleChrome: Bool {
+        bundleIdentifier?.lowercased().hasPrefix("com.google.chrome") == true
     }
 }

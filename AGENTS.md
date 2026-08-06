@@ -86,7 +86,7 @@
 ### 2.4 Tab 切换行为
 
 - 点击 Tab：目标窗口 `raise` 并置于该格 frame；同格其他窗口隐藏（策略见 §4）。
-- Tab 标题：优先窗口标题，空则用 App 名。
+- Tab 标题：默认优先 App 名，空则用窗口标题；Chrome 系列显示“App 名：标签/窗口标题”。
 - Tab 栏不得严重抢焦点：使用非 activating 的 `NSPanel` 一类方案，再对目标窗做 AX raise。
 
 ### 2.5 退出布局
