@@ -1,0 +1,86 @@
+import CoreGraphics
+
+enum LayoutEngine {
+    static let tabBarHeight: CGFloat = 32
+
+    /// 连续均分，余数依次补给前面的窗格，因此 6 个窗口在 Split 2 中为 3/3。
+    static func assign<T>(_ items: [T], paneCount: Int) -> [[T]] {
+        guard paneCount > 0 else { return [] }
+
+        let baseCount = items.count / paneCount
+        let remainder = items.count % paneCount
+        var cursor = 0
+
+        return (0..<paneCount).map { paneIndex in
+            let count = baseCount + (paneIndex < remainder ? 1 : 0)
+            let end = cursor + count
+            defer { cursor = end }
+            return Array(items[cursor..<end])
+        }
+    }
+
+    static func geometries(
+        for kind: LayoutKind,
+        in visibleFrame: CGRect,
+        tabBarHeight: CGFloat = tabBarHeight
+    ) -> [PaneGeometry] {
+        paneFrames(for: kind, in: visibleFrame).map { paneFrame in
+            let clampedTabHeight = min(max(0, tabBarHeight), paneFrame.height)
+            let tabFrame = CGRect(
+                x: paneFrame.minX,
+                y: paneFrame.maxY - clampedTabHeight,
+                width: paneFrame.width,
+                height: clampedTabHeight
+            )
+            let windowFrame = CGRect(
+                x: paneFrame.minX,
+                y: paneFrame.minY,
+                width: paneFrame.width,
+                height: paneFrame.height - clampedTabHeight
+            )
+            return PaneGeometry(
+                paneFrame: paneFrame,
+                tabBarFrame: tabFrame,
+                windowFrame: windowFrame
+            )
+        }
+    }
+
+    private static func paneFrames(for kind: LayoutKind, in frame: CGRect) -> [CGRect] {
+        let leftWidth = floor(frame.width / 2)
+        let rightWidth = frame.width - leftWidth
+
+        switch kind {
+        case .split2:
+            return [
+                CGRect(x: frame.minX, y: frame.minY, width: leftWidth, height: frame.height),
+                CGRect(x: frame.minX + leftWidth, y: frame.minY, width: rightWidth, height: frame.height)
+            ]
+
+        case .split4:
+            let bottomHeight = floor(frame.height / 2)
+            let topHeight = frame.height - bottomHeight
+            return [
+                CGRect(
+                    x: frame.minX,
+                    y: frame.minY + bottomHeight,
+                    width: leftWidth,
+                    height: topHeight
+                ),
+                CGRect(
+                    x: frame.minX + leftWidth,
+                    y: frame.minY + bottomHeight,
+                    width: rightWidth,
+                    height: topHeight
+                ),
+                CGRect(x: frame.minX, y: frame.minY, width: leftWidth, height: bottomHeight),
+                CGRect(
+                    x: frame.minX + leftWidth,
+                    y: frame.minY,
+                    width: rightWidth,
+                    height: bottomHeight
+                )
+            ]
+        }
+    }
+}
