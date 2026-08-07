@@ -26,21 +26,42 @@ final class WindowController {
         setAccessibilityFrame(accessibilityFrame(from: frame, mainScreen: screen), for: window)
     }
 
-    func moveOffscreen(_ window: ManagedWindow, relativeTo screen: NSScreen) {
-        guard let currentFrame = AXHelpers.frame(of: window.element) else { return }
-        let screenFrame = accessibilityFrame(from: screen.frame, mainScreen: screen)
-        let hiddenFrame = CGRect(
-            x: screenFrame.maxX + 120,
-            y: currentFrame.minY,
-            width: currentFrame.width,
-            height: currentFrame.height
-        )
-        _ = setAccessibilityFrame(hiddenFrame, for: window)
-    }
+    @discardableResult
+    func raise(_ window: ManagedWindow) -> Bool {
+        guard isAlive(window) else { return false }
 
-    func raise(_ window: ManagedWindow) {
-        guard isAlive(window) else { return }
-        AXUIElementPerformAction(window.element, kAXRaiseAction as CFString)
+        // AXRaise alone only changes the order inside some applications. When the
+        // target belongs to an inactive app, its window can remain behind the
+        // currently active app even though AX reports success.
+        let runningApplication = NSRunningApplication(processIdentifier: window.ownerPID)
+        if runningApplication?.isActive != true {
+            _ = runningApplication?.activate()
+        }
+
+        let applicationElement = AXUIElementCreateApplication(window.ownerPID)
+        let frontmostResult = AXUIElementSetAttributeValue(
+            applicationElement,
+            kAXFrontmostAttribute as CFString,
+            kCFBooleanTrue
+        )
+        let focusedWindowResult = AXUIElementSetAttributeValue(
+            applicationElement,
+            kAXFocusedWindowAttribute as CFString,
+            window.element
+        )
+        let mainWindowResult = AXUIElementSetAttributeValue(
+            window.element,
+            kAXMainAttribute as CFString,
+            kCFBooleanTrue
+        )
+
+        let raiseResult = AXUIElementPerformAction(
+            window.element,
+            kAXRaiseAction as CFString
+        )
+        return raiseResult == .success
+            || (frontmostResult == .success
+                && (focusedWindowResult == .success || mainWindowResult == .success))
     }
 
     @discardableResult

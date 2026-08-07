@@ -81,19 +81,16 @@ final class LayoutCoordinator {
 
     private func applyInitialLayout(_ session: LayoutSession) {
         for pane in session.panes where !pane.windows.isEmpty {
-            for (index, window) in pane.windows.enumerated() {
-                if index == pane.selectedIndex {
-                    windowController.setAppKitFrame(
-                        pane.geometry.windowFrame,
-                        on: session.screen,
-                        for: window
-                    )
-                } else {
-                    windowController.moveOffscreen(window, relativeTo: session.screen)
-                }
+            for window in pane.windows {
+                windowController.setAppKitFrame(
+                    pane.geometry.windowFrame,
+                    on: session.screen,
+                    for: window
+                )
             }
 
-            if let selectedWindow = pane.windows.first {
+            if pane.windows.indices.contains(pane.selectedIndex) {
+                let selectedWindow = pane.windows[pane.selectedIndex]
                 windowController.raise(selectedWindow)
             }
         }
@@ -116,6 +113,7 @@ final class LayoutCoordinator {
 
         if let panel = session.panels[paneIndex] {
             panel.updateTitles(pane.windows.map(\.tabTitle), selectedIndex: pane.selectedIndex)
+            panel.orderFrontRegardless()
         } else {
             let panel = PaneTabBarPanel(
                 frame: pane.geometry.tabBarFrame,
@@ -164,10 +162,6 @@ final class LayoutCoordinator {
         }) else { return }
 
         var pane = session.panes[paneIndex]
-        if pane.windows.indices.contains(pane.selectedIndex) {
-            windowController.moveOffscreen(pane.windows[pane.selectedIndex], relativeTo: session.screen)
-        }
-
         session.originalFrames[window.windowID] = window.frame
         pane.windows.append(window)
         pane.selectedIndex = pane.windows.count - 1
@@ -218,17 +212,18 @@ final class LayoutCoordinator {
         }
 
         let pane = session.panes[paneIndex]
-        for (index, window) in pane.windows.enumerated() {
-            if index == selectedIndex {
-                windowController.setAppKitFrame(
-                    pane.geometry.windowFrame,
-                    on: session.screen,
-                    for: window
-                )
-                windowController.raise(window)
-            } else {
-                windowController.moveOffscreen(window, relativeTo: session.screen)
-            }
+        let selectedWindow = pane.windows[selectedIndex]
+        windowController.setAppKitFrame(
+            pane.geometry.windowFrame,
+            on: session.screen,
+            for: selectedWindow
+        )
+        guard windowController.raise(selectedWindow) else {
+            // Some apps transiently reject AX actions while being activated. Keep
+            // the previous selection instead of showing a selected Tab whose
+            // window never came to the front.
+            createOrUpdateTabBar(forPane: paneIndex, in: session)
+            return
         }
         session.panes[paneIndex].selectedIndex = selectedIndex
         createOrUpdateTabBar(forPane: paneIndex, in: session)

@@ -19,9 +19,7 @@ private final class PaneTabItemView: NSView {
 
         wantsLayer = true
         layer?.cornerRadius = 5
-        layer?.backgroundColor = isSelected
-            ? NSColor.controlAccentColor.withAlphaComponent(0.18).cgColor
-            : NSColor.clear.cgColor
+        updateSelection(isSelected)
 
         selectButton.title = title
         selectButton.toolTip = title
@@ -63,6 +61,12 @@ private final class PaneTabItemView: NSView {
     @objc private func closeWindow() {
         closeHandler()
     }
+
+    func updateSelection(_ isSelected: Bool) {
+        layer?.backgroundColor = isSelected
+            ? NSColor.controlAccentColor.withAlphaComponent(0.18).cgColor
+            : NSColor.clear.cgColor
+    }
 }
 
 @MainActor
@@ -77,6 +81,7 @@ final class PaneTabBarPanel: NSPanel {
     private let tabWidth: CGFloat
     private let scrollView = NSScrollView()
     private let tabStripView = NSView()
+    private var tabItemViews: [PaneTabItemView] = []
     private var titles: [String]
     private var selectedIndex: Int
 
@@ -139,6 +144,7 @@ final class PaneTabBarPanel: NSPanel {
 
     private func rebuildTabs() {
         tabStripView.subviews.forEach { $0.removeFromSuperview() }
+        tabItemViews.removeAll(keepingCapacity: true)
 
         let itemHeight = max(0, availableFrame.height - 8)
         for (index, title) in titles.enumerated() {
@@ -155,6 +161,7 @@ final class PaneTabBarPanel: NSPanel {
                 height: itemHeight
             )
             tabStripView.addSubview(item)
+            tabItemViews.append(item)
         }
 
         let stripWidth = CGFloat(titles.count) * tabWidth
@@ -191,8 +198,27 @@ final class PaneTabBarPanel: NSPanel {
     }
 
     func updateTitles(_ titles: [String], selectedIndex: Int) {
+        let titlesChanged = self.titles != titles
         self.titles = titles
         self.selectedIndex = titles.indices.contains(selectedIndex) ? selectedIndex : -1
-        rebuildTabs()
+        if titlesChanged || tabItemViews.count != titles.count {
+            rebuildTabs()
+            return
+        }
+
+        for (index, item) in tabItemViews.enumerated() {
+            item.updateSelection(index == self.selectedIndex)
+        }
+
+        if titles.indices.contains(self.selectedIndex) {
+            tabStripView.scrollToVisible(
+                CGRect(
+                    x: CGFloat(self.selectedIndex) * tabWidth,
+                    y: 0,
+                    width: tabWidth,
+                    height: max(0, availableFrame.height - 8)
+                )
+            )
+        }
     }
 }
