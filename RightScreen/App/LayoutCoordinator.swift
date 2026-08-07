@@ -2,10 +2,13 @@ import AppKit
 
 @MainActor
 final class LayoutCoordinator {
+    private static let requiredNewWindowSightings = 3
+
     private let windowIndexer = WindowIndexer()
     private let windowController = WindowController()
     private var refreshTimer: Timer?
     private var closingWindowIDs = Set<CGWindowID>()
+    private var pendingWindowSightings: [CGWindowID: Int] = [:]
     private(set) var session: LayoutSession?
 
     var hasActiveLayout: Bool {
@@ -50,6 +53,7 @@ final class LayoutCoordinator {
         )
         session = newSession
         closingWindowIDs.removeAll()
+        pendingWindowSightings.removeAll()
 
         applyInitialLayout(newSession)
         createTabBars(for: newSession)
@@ -62,6 +66,7 @@ final class LayoutCoordinator {
         refreshTimer = nil
         self.session = nil
         closingWindowIDs.removeAll()
+        pendingWindowSightings.removeAll()
 
         for panel in session.panels.compactMap({ $0 }) {
             panel.orderOut(nil)
@@ -153,16 +158,42 @@ final class LayoutCoordinator {
 
         removeClosedWindows(from: session)
 
-        let knownWindowIDs = Set(session.panes.flatMap(\.windows).map(\.windowID))
-        let newWindows = windowIndexer.currentSpaceWindows().filter {
-            !knownWindowIDs.contains($0.windowID) && !closingWindowIDs.contains($0.windowID)
+        let managedWindows = session.panes.flatMap(\.windows)
+        let knownWindowIDs = Set(managedWindows.map(\.windowID))
+        let candidates = windowIndexer.currentSpaceWindows().filter { candidate in
+            !knownWindowIDs.contains(candidate.windowID)
+                && !closingWindowIDs.contains(candidate.windowID)
+                && !managedWindows.contains(where: {
+                    $0.refersToSameAccessibilityWindow(as: candidate)
+                })
         }
-        for window in newWindows {
-            addNewWindow(window, to: session)
+
+        let visibleCandidateIDs = Set(candidates.map(\.windowID))
+        pendingWindowSightings = pendingWindowSightings.filter {
+            visibleCandidateIDs.contains($0.key)
+        }
+
+        for candidate in candidates {
+            let sightings = pendingWindowSightings[candidate.windowID, default: 0] + 1
+            guard sightings >= Self.requiredNewWindowSightings else {
+                pendingWindowSightings[candidate.windowID] = sightings
+                continue
+            }
+
+            pendingWindowSightings.removeValue(forKey: candidate.windowID)
+            addNewWindow(candidate, to: session)
         }
     }
 
     private func addNewWindow(_ window: ManagedWindow, to session: LayoutSession) {
+        let managedWindows = session.panes.flatMap(\.windows)
+        guard
+            !managedWindows.contains(where: { $0.windowID == window.windowID }),
+            !managedWindows.contains(where: { $0.refersToSameAccessibilityWindow(as: window) })
+        else {
+            return
+        }
+
         guard let paneIndex = session.panes.indices.min(by: {
             session.panes[$0].windows.count < session.panes[$1].windows.count
         }) else { return }

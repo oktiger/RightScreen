@@ -10,6 +10,10 @@ struct ManagedWindow {
     let frame: CGRect
     let element: AXUIElement
 
+    func refersToSameAccessibilityWindow(as other: ManagedWindow) -> Bool {
+        ownerPID == other.ownerPID && CFEqual(element, other.element)
+    }
+
     var tabTitle: String {
         let trimmedAppName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedWindowTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)

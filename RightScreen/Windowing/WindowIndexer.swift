@@ -124,20 +124,44 @@ final class WindowIndexer {
         let subrole = AXHelpers.string(kAXSubroleAttribute as CFString, of: element)
         guard role == (kAXWindowRole as String) else { return false }
 
-        // Chrome/Finder occasionally omit the subrole while a window is being created.
-        // Accept a missing subrole, but continue to reject known transient/non-document windows.
+        // A transient surface can be exposed as AXWindow even though it is not an
+        // independently manageable document window. Prefer positive identification
+        // of a standard window and fail closed for known non-document subroles.
         let excludedSubroles: Set<String> = [
             kAXDialogSubrole as String,
             kAXSystemDialogSubrole as String,
-            kAXFloatingWindowSubrole as String
+            kAXFloatingWindowSubrole as String,
+            kAXSystemFloatingWindowSubrole as String
         ]
         if let subrole, excludedSubroles.contains(subrole) { return false }
+        if let subrole, subrole != (kAXStandardWindowSubrole as String) { return false }
 
+        guard AXHelpers.bool(kAXModalAttribute as CFString, of: element) != true else { return false }
         guard AXHelpers.bool(kAXMinimizedAttribute as CFString, of: element) != true else { return false }
         guard AXHelpers.bool("AXFullScreen" as CFString, of: element) != true else { return false }
+
+        // Chrome/Finder can briefly omit AXSubrole while creating a real window.
+        // In that ambiguous case, require the capabilities of an independent window;
+        // popovers such as WeChat contact cards normally expose none of these controls.
+        if subrole == nil {
+            guard
+                AXHelpers.isSettable(kAXPositionAttribute as CFString, of: element),
+                AXHelpers.isSettable(kAXSizeAttribute as CFString, of: element),
+                hasStandardWindowControl(element)
+            else {
+                return false
+            }
+        }
+
         // AXUIElementIsAttributeSettable can transiently return cannotComplete for Chrome
         // and Finder. The controller remains the single place that attempts the mutation.
         return AXHelpers.frame(of: element) != nil
+    }
+
+    private func hasStandardWindowControl(_ element: AXUIElement) -> Bool {
+        AXHelpers.attribute(kAXCloseButtonAttribute as CFString, of: element) != nil
+            || AXHelpers.attribute(kAXMinimizeButtonAttribute as CFString, of: element) != nil
+            || AXHelpers.attribute(kAXZoomButtonAttribute as CFString, of: element) != nil
     }
 
     private func bestMatch(
@@ -154,7 +178,15 @@ final class WindowIndexer {
             let title = AXHelpers.string(kAXTitleAttribute as CFString, of: windows[index]) ?? ""
             let titleMatches = !record.title.isEmpty && title == record.title
             let overlap = Self.overlapRatio(frame, record.frame)
-            guard geometryDelta <= 240 || overlap >= 0.7 || titleMatches else { return nil }
+            let sizeSimilarity = Self.sizeSimilarity(frame, record.frame)
+
+            // A popup fully contained by its parent used to have an overlap ratio of
+            // 1.0 because overlap was divided by the smaller area. Requiring similar
+            // dimensions and using IoU prevents that popup CG record from stealing
+            // the parent's AX element. A matching title only affects ranking; it is
+            // not strong enough to bypass geometry validation.
+            guard sizeSimilarity >= 0.72 else { return nil }
+            guard geometryDelta <= 240 || overlap >= 0.65 else { return nil }
             return (index, geometryDelta - (titleMatches ? 1_000 : 0))
         }
 
@@ -169,10 +201,21 @@ final class WindowIndexer {
     }
 
     nonisolated static func overlapRatio(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
-        let smallerArea = min(lhs.width * lhs.height, rhs.width * rhs.height)
-        guard smallerArea > 0 else { return 0 }
+        let lhsArea = lhs.width * lhs.height
+        let rhsArea = rhs.width * rhs.height
+        guard lhsArea > 0, rhsArea > 0 else { return 0 }
         let intersection = lhs.intersection(rhs)
         guard !intersection.isNull else { return 0 }
-        return intersection.width * intersection.height / smallerArea
+        let intersectionArea = intersection.width * intersection.height
+        let unionArea = lhsArea + rhsArea - intersectionArea
+        guard unionArea > 0 else { return 0 }
+        return intersectionArea / unionArea
+    }
+
+    nonisolated static func sizeSimilarity(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
+        guard lhs.width > 0, lhs.height > 0, rhs.width > 0, rhs.height > 0 else { return 0 }
+        let widthRatio = min(lhs.width, rhs.width) / max(lhs.width, rhs.width)
+        let heightRatio = min(lhs.height, rhs.height) / max(lhs.height, rhs.height)
+        return min(widthRatio, heightRatio)
     }
 }
