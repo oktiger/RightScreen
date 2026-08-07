@@ -69,6 +69,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        let activeKind = coordinator.session?.kind
+        split2Item.state = activeKind == .split2 ? .on : .off
+        split4Item.state = activeKind == .split4 ? .on : .off
         exitLayoutItem.isEnabled = coordinator.hasActiveLayout
         permissionItem.state = Permissions.isAccessibilityGranted ? .on : .off
     }

@@ -11,6 +11,7 @@ contents_dir="$app_dir/Contents"
 
 mkdir -p "$contents_dir/MacOS" "$contents_dir/Resources"
 cp "$project_dir/RightScreen/Resources/Info.plist" "$contents_dir/Info.plist"
+cp "$project_dir/RightScreen/Resources/AppIcon.icns" "$contents_dir/Resources/AppIcon.icns"
 cp "$bin_dir/RightScreen" "$contents_dir/MacOS/RightScreen"
 "$project_dir/Scripts/sign-app.sh" "$app_dir"
 

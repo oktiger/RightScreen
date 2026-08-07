@@ -5,7 +5,7 @@ import AppKit
 enum RightScreenApp {
     static func main() {
         let application = NSApplication.shared
-        application.setActivationPolicy(.accessory)
+        application.setActivationPolicy(.regular)
 
         let delegate = AppDelegate()
         application.delegate = delegate

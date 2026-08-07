@@ -126,11 +126,18 @@ final class LayoutCoordinator {
             let panel = PaneTabBarPanel(
                 frame: pane.geometry.tabBarFrame,
                 tabs: pane.windows.map(makeTabPresentation),
+                moveDirections: PaneMove.availableDirections(
+                    from: paneIndex,
+                    kind: session.kind
+                ),
                 selectionHandler: { [weak self] selectedIndex in
                     self?.selectTab(selectedIndex, inPane: paneIndex)
                 },
                 closeHandler: { [weak self] tabIndex in
                     self?.closeTab(tabIndex, inPane: paneIndex)
+                },
+                moveHandler: { [weak self] tabIndex, direction in
+                    self?.moveTab(tabIndex, inPane: paneIndex, direction: direction)
                 }
             )
             session.panels[paneIndex] = panel
@@ -306,6 +313,68 @@ final class LayoutCoordinator {
             windowController.raise(replacement)
         }
         createOrUpdateTabBar(forPane: paneIndex, in: session)
+    }
+
+    private func moveTab(
+        _ tabIndex: Int,
+        inPane sourcePaneIndex: Int,
+        direction: PaneMoveDirection
+    ) {
+        guard
+            let session,
+            let targetPaneIndex = PaneMove.destinationPaneIndex(
+                from: sourcePaneIndex,
+                direction: direction,
+                kind: session.kind
+            ),
+            session.panes.indices.contains(sourcePaneIndex),
+            session.panes.indices.contains(targetPaneIndex),
+            session.panes[sourcePaneIndex].windows.indices.contains(tabIndex)
+        else {
+            return
+        }
+
+        var sourcePane = session.panes[sourcePaneIndex]
+        var targetPane = session.panes[targetPaneIndex]
+        let wasSelected = tabIndex == sourcePane.selectedIndex
+        let window = sourcePane.windows.remove(at: tabIndex)
+
+        if sourcePane.windows.isEmpty {
+            sourcePane.selectedIndex = 0
+        } else if tabIndex < sourcePane.selectedIndex {
+            sourcePane.selectedIndex -= 1
+        } else {
+            sourcePane.selectedIndex = min(
+                sourcePane.selectedIndex,
+                sourcePane.windows.count - 1
+            )
+        }
+
+        targetPane.windows.append(window)
+        targetPane.selectedIndex = targetPane.windows.count - 1
+
+        session.panes[sourcePaneIndex] = sourcePane
+        session.panes[targetPaneIndex] = targetPane
+
+        windowController.setAppKitFrame(
+            targetPane.geometry.windowFrame,
+            on: session.screen,
+            for: window
+        )
+
+        if wasSelected, !sourcePane.windows.isEmpty {
+            let replacement = sourcePane.windows[sourcePane.selectedIndex]
+            windowController.setAppKitFrame(
+                sourcePane.geometry.windowFrame,
+                on: session.screen,
+                for: replacement
+            )
+            windowController.raise(replacement)
+        }
+
+        windowController.raise(window)
+        createOrUpdateTabBar(forPane: sourcePaneIndex, in: session)
+        createOrUpdateTabBar(forPane: targetPaneIndex, in: session)
     }
 
     private func showMessage(title: String, message: String) {

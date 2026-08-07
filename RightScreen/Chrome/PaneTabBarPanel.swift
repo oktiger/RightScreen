@@ -20,23 +20,35 @@ private final class PaneTabItemView: NSView {
         static let cornerRadius: CGFloat = 8
         static let titleLeadingInset: CGFloat = 9
         static let closeButtonWidth: CGFloat = 23
+        static let moveButtonWidth: CGFloat = 20
     }
 
     private let materialView = NSVisualEffectView()
     private let tintView = NSView()
     private let selectButton = NSButton()
     private let closeButton = NSButton()
+    private let moveButtonStack = NSStackView()
+    private var moveButtons: [NSButton] = []
+    private let moveDirections: [PaneMoveDirection]
     private let selectionHandler: () -> Void
     private let closeHandler: () -> Void
+    private let moveHandler: (PaneMoveDirection) -> Void
+    private var isSelected = false
+    private var isHovered = false
+    private var trackingArea: NSTrackingArea?
 
     init(
         tab: PaneTabPresentation,
         isSelected: Bool,
+        moveDirections: [PaneMoveDirection],
         selectionHandler: @escaping () -> Void,
-        closeHandler: @escaping () -> Void
+        closeHandler: @escaping () -> Void,
+        moveHandler: @escaping (PaneMoveDirection) -> Void
     ) {
+        self.moveDirections = moveDirections
         self.selectionHandler = selectionHandler
         self.closeHandler = closeHandler
+        self.moveHandler = moveHandler
         super.init(frame: .zero)
 
         wantsLayer = true
@@ -75,9 +87,30 @@ private final class PaneTabItemView: NSView {
         closeButton.target = self
         closeButton.action = #selector(closeWindow)
 
+        moveButtonStack.orientation = .horizontal
+        moveButtonStack.spacing = 0
+        moveButtonStack.alignment = .centerY
+        moveButtonStack.distribution = .fillEqually
+        for direction in moveDirections {
+            let button = NSButton()
+            button.image = NSImage(
+                systemSymbolName: direction.systemSymbolName,
+                accessibilityDescription: direction.tooltip
+            )?.withSymbolConfiguration(.init(pointSize: 10, weight: .semibold))
+            button.toolTip = direction.tooltip
+            button.isBordered = false
+            button.imagePosition = .imageOnly
+            button.target = self
+            button.action = #selector(moveButtonClicked(_:))
+            button.tag = moveButtons.count
+            moveButtons.append(button)
+            moveButtonStack.addArrangedSubview(button)
+        }
+
         addSubview(materialView)
         addSubview(tintView)
         addSubview(selectButton)
+        addSubview(moveButtonStack)
         addSubview(closeButton)
         updateSelection(isSelected)
     }
@@ -87,14 +120,56 @@ private final class PaneTabItemView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        updateMoveControlsVisibility()
+        needsLayout = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        updateMoveControlsVisibility()
+        needsLayout = true
+    }
+
     override func layout() {
         super.layout()
         materialView.frame = bounds
         tintView.frame = bounds
+
+        let showMoves = shouldShowMoveControls
+        let moveWidth = showMoves
+            ? CGFloat(moveDirections.count) * Metrics.moveButtonWidth
+            : 0
+        moveButtonStack.isHidden = !showMoves
+        moveButtonStack.frame = CGRect(
+            x: bounds.width - Metrics.closeButtonWidth - moveWidth,
+            y: 0,
+            width: moveWidth,
+            height: bounds.height
+        )
         selectButton.frame = CGRect(
             x: Metrics.titleLeadingInset,
             y: 0,
-            width: max(0, bounds.width - Metrics.closeButtonWidth - Metrics.titleLeadingInset),
+            width: max(
+                0,
+                bounds.width - Metrics.closeButtonWidth - moveWidth - Metrics.titleLeadingInset
+            ),
             height: bounds.height
         )
         closeButton.frame = CGRect(
@@ -113,7 +188,13 @@ private final class PaneTabItemView: NSView {
         closeHandler()
     }
 
+    @objc private func moveButtonClicked(_ sender: NSButton) {
+        guard moveDirections.indices.contains(sender.tag) else { return }
+        moveHandler(moveDirections[sender.tag])
+    }
+
     func updateSelection(_ isSelected: Bool) {
+        self.isSelected = isSelected
         // Keep every item independently frosted. The selected item receives an
         // almost opaque white tint, matching the reference while preserving a
         // trace of the material beneath it.
@@ -121,17 +202,34 @@ private final class PaneTabItemView: NSView {
             ? NSColor.white.withAlphaComponent(0.97).cgColor
             : NSColor.white.withAlphaComponent(0.13).cgColor
 
-        selectButton.contentTintColor = isSelected
+        let titleColor: NSColor = isSelected
             ? NSColor.black.withAlphaComponent(0.92)
             : NSColor.white.withAlphaComponent(0.94)
-        closeButton.contentTintColor = isSelected
+        let chromeColor: NSColor = isSelected
             ? NSColor.black.withAlphaComponent(0.48)
             : NSColor.white.withAlphaComponent(0.78)
+
+        selectButton.contentTintColor = titleColor
+        closeButton.contentTintColor = chromeColor
+        for button in moveButtons {
+            button.contentTintColor = chromeColor
+        }
 
         layer?.shadowColor = NSColor.black.cgColor
         layer?.shadowOpacity = isSelected ? 0.16 : 0.08
         layer?.shadowRadius = isSelected ? 2 : 1
         layer?.shadowOffset = CGSize(width: 0, height: -1)
+
+        updateMoveControlsVisibility()
+        needsLayout = true
+    }
+
+    private var shouldShowMoveControls: Bool {
+        !moveDirections.isEmpty && (isSelected || isHovered)
+    }
+
+    private func updateMoveControlsVisibility() {
+        moveButtonStack.isHidden = !shouldShowMoveControls
     }
 }
 
@@ -143,6 +241,8 @@ final class PaneTabBarPanel: NSPanel {
 
     private let selectionHandler: (Int) -> Void
     private let closeHandler: (Int) -> Void
+    private let moveHandler: (Int, PaneMoveDirection) -> Void
+    private let moveDirections: [PaneMoveDirection]
     private let availableFrame: CGRect
     private let scrollView = NSScrollView()
     private let tabStripView = NSView()
@@ -153,11 +253,15 @@ final class PaneTabBarPanel: NSPanel {
     init(
         frame: CGRect,
         tabs: [PaneTabPresentation],
+        moveDirections: [PaneMoveDirection],
         selectionHandler: @escaping (Int) -> Void,
-        closeHandler: @escaping (Int) -> Void
+        closeHandler: @escaping (Int) -> Void,
+        moveHandler: @escaping (Int, PaneMoveDirection) -> Void
     ) {
         self.selectionHandler = selectionHandler
         self.closeHandler = closeHandler
+        self.moveHandler = moveHandler
+        self.moveDirections = moveDirections
         availableFrame = frame
         self.tabs = tabs
         selectedIndex = tabs.isEmpty ? -1 : 0
@@ -213,8 +317,12 @@ final class PaneTabBarPanel: NSPanel {
             let item = PaneTabItemView(
                 tab: tab,
                 isSelected: index == selectedIndex,
+                moveDirections: moveDirections,
                 selectionHandler: { [weak self] in self?.selectionHandler(index) },
-                closeHandler: { [weak self] in self?.closeHandler(index) }
+                closeHandler: { [weak self] in self?.closeHandler(index) },
+                moveHandler: { [weak self] direction in
+                    self?.moveHandler(index, direction)
+                }
             )
             item.frame = CGRect(
                 x: CGFloat(index) * (Self.tabWidth + Self.tabSpacing),
