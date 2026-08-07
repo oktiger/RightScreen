@@ -112,13 +112,15 @@ final class LayoutCoordinator {
         }
 
         if let panel = session.panels[paneIndex] {
-            panel.updateTitles(pane.windows.map(\.tabTitle), selectedIndex: pane.selectedIndex)
+            panel.updateTabs(
+                pane.windows.map(makeTabPresentation),
+                selectedIndex: pane.selectedIndex
+            )
             panel.orderFrontRegardless()
         } else {
             let panel = PaneTabBarPanel(
                 frame: pane.geometry.tabBarFrame,
-                screenWidth: session.screen.visibleFrame.width,
-                titles: pane.windows.map(\.tabTitle),
+                tabs: pane.windows.map(makeTabPresentation),
                 selectionHandler: { [weak self] selectedIndex in
                     self?.selectTab(selectedIndex, inPane: paneIndex)
                 },
@@ -129,6 +131,10 @@ final class LayoutCoordinator {
             session.panels[paneIndex] = panel
             panel.orderFrontRegardless()
         }
+    }
+
+    private func makeTabPresentation(for window: ManagedWindow) -> PaneTabPresentation {
+        PaneTabPresentation(title: window.tabTitle, ownerPID: window.ownerPID)
     }
 
     private func startRefreshingWindows() {

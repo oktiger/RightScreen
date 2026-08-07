@@ -1,14 +1,36 @@
 import AppKit
 
+struct PaneTabPresentation: Equatable {
+    let title: String
+    let ownerPID: pid_t
+
+    var applicationIcon: NSImage? {
+        guard let icon = NSRunningApplication(processIdentifier: ownerPID)?.icon else {
+            return nil
+        }
+        let scaledIcon = (icon.copy() as? NSImage) ?? icon
+        scaledIcon.size = CGSize(width: 13, height: 13)
+        return scaledIcon
+    }
+}
+
 @MainActor
 private final class PaneTabItemView: NSView {
+    private enum Metrics {
+        static let cornerRadius: CGFloat = 8
+        static let titleLeadingInset: CGFloat = 9
+        static let closeButtonWidth: CGFloat = 23
+    }
+
+    private let materialView = NSVisualEffectView()
+    private let tintView = NSView()
     private let selectButton = NSButton()
     private let closeButton = NSButton()
     private let selectionHandler: () -> Void
     private let closeHandler: () -> Void
 
     init(
-        title: String,
+        tab: PaneTabPresentation,
         isSelected: Bool,
         selectionHandler: @escaping () -> Void,
         closeHandler: @escaping () -> Void
@@ -18,28 +40,46 @@ private final class PaneTabItemView: NSView {
         super.init(frame: .zero)
 
         wantsLayer = true
-        layer?.cornerRadius = 5
-        updateSelection(isSelected)
 
-        selectButton.title = title
-        selectButton.toolTip = title
+        materialView.material = .hudWindow
+        materialView.blendingMode = .behindWindow
+        materialView.state = .active
+        materialView.wantsLayer = true
+        materialView.layer?.cornerRadius = Metrics.cornerRadius
+        materialView.layer?.masksToBounds = true
+
+        tintView.wantsLayer = true
+        tintView.layer?.cornerRadius = Metrics.cornerRadius
+        tintView.layer?.masksToBounds = true
+
+        selectButton.title = tab.title
+        selectButton.toolTip = tab.title
+        selectButton.image = tab.applicationIcon
+        selectButton.imagePosition = tab.applicationIcon == nil ? .noImage : .imageLeading
+        selectButton.imageScaling = .scaleProportionallyDown
+        selectButton.imageHugsTitle = true
         selectButton.isBordered = false
         selectButton.alignment = .left
-        selectButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        selectButton.font = .systemFont(ofSize: 11, weight: .medium)
         selectButton.cell?.lineBreakMode = .byTruncatingTail
         selectButton.target = self
         selectButton.action = #selector(selectTab)
 
-        closeButton.title = "×"
+        closeButton.image = NSImage(
+            systemSymbolName: "xmark",
+            accessibilityDescription: "关闭窗口"
+        )?.withSymbolConfiguration(.init(pointSize: 9, weight: .semibold))
         closeButton.toolTip = "关闭窗口"
         closeButton.isBordered = false
-        closeButton.font = .systemFont(ofSize: 15, weight: .medium)
-        closeButton.contentTintColor = .secondaryLabelColor
+        closeButton.imagePosition = .imageOnly
         closeButton.target = self
         closeButton.action = #selector(closeWindow)
 
+        addSubview(materialView)
+        addSubview(tintView)
         addSubview(selectButton)
         addSubview(closeButton)
+        updateSelection(isSelected)
     }
 
     @available(*, unavailable)
@@ -49,9 +89,20 @@ private final class PaneTabItemView: NSView {
 
     override func layout() {
         super.layout()
-        let closeWidth: CGFloat = 26
-        selectButton.frame = CGRect(x: 8, y: 0, width: max(0, bounds.width - closeWidth - 8), height: bounds.height)
-        closeButton.frame = CGRect(x: bounds.width - closeWidth, y: 0, width: closeWidth, height: bounds.height)
+        materialView.frame = bounds
+        tintView.frame = bounds
+        selectButton.frame = CGRect(
+            x: Metrics.titleLeadingInset,
+            y: 0,
+            width: max(0, bounds.width - Metrics.closeButtonWidth - Metrics.titleLeadingInset),
+            height: bounds.height
+        )
+        closeButton.frame = CGRect(
+            x: bounds.width - Metrics.closeButtonWidth,
+            y: 0,
+            width: Metrics.closeButtonWidth,
+            height: bounds.height
+        )
     }
 
     @objc private func selectTab() {
@@ -63,44 +114,53 @@ private final class PaneTabItemView: NSView {
     }
 
     func updateSelection(_ isSelected: Bool) {
-        layer?.backgroundColor = isSelected
-            ? NSColor.controlAccentColor.withAlphaComponent(0.18).cgColor
-            : NSColor.clear.cgColor
+        // Keep every item independently frosted. The selected item receives an
+        // almost opaque white tint, matching the reference while preserving a
+        // trace of the material beneath it.
+        tintView.layer?.backgroundColor = isSelected
+            ? NSColor.white.withAlphaComponent(0.97).cgColor
+            : NSColor.white.withAlphaComponent(0.13).cgColor
+
+        selectButton.contentTintColor = isSelected
+            ? NSColor.black.withAlphaComponent(0.92)
+            : NSColor.white.withAlphaComponent(0.94)
+        closeButton.contentTintColor = isSelected
+            ? NSColor.black.withAlphaComponent(0.48)
+            : NSColor.white.withAlphaComponent(0.78)
+
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOpacity = isSelected ? 0.16 : 0.08
+        layer?.shadowRadius = isSelected ? 2 : 1
+        layer?.shadowOffset = CGSize(width: 0, height: -1)
     }
 }
 
 @MainActor
 final class PaneTabBarPanel: NSPanel {
     private static let horizontalInset: CGFloat = 6
-    private static let minimumTabWidth: CGFloat = 112
-    private static let maximumTabWidth: CGFloat = 180
+    private static let tabWidth: CGFloat = 154
+    private static let tabSpacing: CGFloat = 4
 
     private let selectionHandler: (Int) -> Void
     private let closeHandler: (Int) -> Void
     private let availableFrame: CGRect
-    private let tabWidth: CGFloat
     private let scrollView = NSScrollView()
     private let tabStripView = NSView()
     private var tabItemViews: [PaneTabItemView] = []
-    private var titles: [String]
+    private var tabs: [PaneTabPresentation]
     private var selectedIndex: Int
 
     init(
         frame: CGRect,
-        screenWidth: CGFloat,
-        titles: [String],
+        tabs: [PaneTabPresentation],
         selectionHandler: @escaping (Int) -> Void,
         closeHandler: @escaping (Int) -> Void
     ) {
         self.selectionHandler = selectionHandler
         self.closeHandler = closeHandler
         availableFrame = frame
-        tabWidth = min(
-            Self.maximumTabWidth,
-            max(Self.minimumTabWidth, floor(screenWidth / 8))
-        )
-        self.titles = titles
-        selectedIndex = titles.isEmpty ? -1 : 0
+        self.tabs = tabs
+        selectedIndex = tabs.isEmpty ? -1 : 0
 
         super.init(
             contentRect: frame,
@@ -127,9 +187,11 @@ final class PaneTabBarPanel: NSPanel {
         becomesKeyOnlyIfNeeded = true
         level = .floating
         collectionBehavior = [.ignoresCycle]
-        hasShadow = true
+        hasShadow = false
         isOpaque = false
-        backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.96)
+        backgroundColor = .clear
+        contentView?.wantsLayer = true
+        contentView?.layer?.backgroundColor = NSColor.clear.cgColor
     }
 
     private func configureTabStrip() {
@@ -147,24 +209,25 @@ final class PaneTabBarPanel: NSPanel {
         tabItemViews.removeAll(keepingCapacity: true)
 
         let itemHeight = max(0, availableFrame.height - 8)
-        for (index, title) in titles.enumerated() {
+        for (index, tab) in tabs.enumerated() {
             let item = PaneTabItemView(
-                title: title,
+                tab: tab,
                 isSelected: index == selectedIndex,
                 selectionHandler: { [weak self] in self?.selectionHandler(index) },
                 closeHandler: { [weak self] in self?.closeHandler(index) }
             )
             item.frame = CGRect(
-                x: CGFloat(index) * tabWidth,
+                x: CGFloat(index) * (Self.tabWidth + Self.tabSpacing),
                 y: 0,
-                width: tabWidth,
+                width: Self.tabWidth,
                 height: itemHeight
             )
             tabStripView.addSubview(item)
             tabItemViews.append(item)
         }
 
-        let stripWidth = CGFloat(titles.count) * tabWidth
+        let stripWidth = CGFloat(tabs.count) * Self.tabWidth
+            + CGFloat(max(0, tabs.count - 1)) * Self.tabSpacing
         let panelWidth = min(
             availableFrame.width,
             stripWidth + Self.horizontalInset * 2
@@ -185,23 +248,23 @@ final class PaneTabBarPanel: NSPanel {
             size: CGSize(width: max(stripWidth, scrollView.bounds.width), height: itemHeight)
         )
 
-        if titles.indices.contains(selectedIndex) {
+        if tabs.indices.contains(selectedIndex) {
             tabStripView.scrollToVisible(
                 CGRect(
-                    x: CGFloat(selectedIndex) * tabWidth,
+                    x: CGFloat(selectedIndex) * (Self.tabWidth + Self.tabSpacing),
                     y: 0,
-                    width: tabWidth,
+                    width: Self.tabWidth,
                     height: itemHeight
                 )
             )
         }
     }
 
-    func updateTitles(_ titles: [String], selectedIndex: Int) {
-        let titlesChanged = self.titles != titles
-        self.titles = titles
-        self.selectedIndex = titles.indices.contains(selectedIndex) ? selectedIndex : -1
-        if titlesChanged || tabItemViews.count != titles.count {
+    func updateTabs(_ tabs: [PaneTabPresentation], selectedIndex: Int) {
+        let tabsChanged = self.tabs != tabs
+        self.tabs = tabs
+        self.selectedIndex = tabs.indices.contains(selectedIndex) ? selectedIndex : -1
+        if tabsChanged || tabItemViews.count != tabs.count {
             rebuildTabs()
             return
         }
@@ -210,12 +273,12 @@ final class PaneTabBarPanel: NSPanel {
             item.updateSelection(index == self.selectedIndex)
         }
 
-        if titles.indices.contains(self.selectedIndex) {
+        if tabs.indices.contains(self.selectedIndex) {
             tabStripView.scrollToVisible(
                 CGRect(
-                    x: CGFloat(self.selectedIndex) * tabWidth,
+                    x: CGFloat(self.selectedIndex) * (Self.tabWidth + Self.tabSpacing),
                     y: 0,
-                    width: tabWidth,
+                    width: Self.tabWidth,
                     height: max(0, availableFrame.height - 8)
                 )
             )
