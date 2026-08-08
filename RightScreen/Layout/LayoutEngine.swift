@@ -49,17 +49,49 @@ enum LayoutEngine {
     private static func paneFrames(for kind: LayoutKind, in frame: CGRect) -> [CGRect] {
         let leftWidth = floor(frame.width / 2)
         let rightWidth = frame.width - leftWidth
+        let bottomHeight = floor(frame.height / 2)
+        let topHeight = frame.height - bottomHeight
 
         switch kind {
+        case .fullScreen:
+            return [frame]
+
         case .split2:
             return [
                 CGRect(x: frame.minX, y: frame.minY, width: leftWidth, height: frame.height),
                 CGRect(x: frame.minX + leftWidth, y: frame.minY, width: rightWidth, height: frame.height)
             ]
 
+        case .topBottom:
+            return [
+                CGRect(
+                    x: frame.minX,
+                    y: frame.minY + bottomHeight,
+                    width: frame.width,
+                    height: topHeight
+                ),
+                CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: bottomHeight)
+            ]
+
+        case .focusStack:
+            // 0 左主栏，1 右上，2 右下。从左格向右移动时落到右上（见 PaneMove）。
+            return [
+                CGRect(x: frame.minX, y: frame.minY, width: leftWidth, height: frame.height),
+                CGRect(
+                    x: frame.minX + leftWidth,
+                    y: frame.minY + bottomHeight,
+                    width: rightWidth,
+                    height: topHeight
+                ),
+                CGRect(
+                    x: frame.minX + leftWidth,
+                    y: frame.minY,
+                    width: rightWidth,
+                    height: bottomHeight
+                )
+            ]
+
         case .split4:
-            let bottomHeight = floor(frame.height / 2)
-            let topHeight = frame.height - bottomHeight
             return [
                 CGRect(
                     x: frame.minX,

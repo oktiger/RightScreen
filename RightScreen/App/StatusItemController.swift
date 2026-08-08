@@ -5,16 +5,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let coordinator: LayoutCoordinator
     private let statusItem: NSStatusItem
 
-    private lazy var split2Item = menuItem(
-        title: "左右二分",
-        action: #selector(startSplit2),
-        keyEquivalent: ""
-    )
-    private lazy var split4Item = menuItem(
-        title: "四等分",
-        action: #selector(startSplit4),
-        keyEquivalent: ""
-    )
+    private lazy var layoutItems: [(kind: LayoutKind, item: NSMenuItem)] = LayoutKind.allCases.map { kind in
+        let item = menuItem(
+            title: "\(kind.menuTitle)（\(kind.menuSubtitle)）",
+            action: #selector(startLayoutFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        item.image = LayoutKindIcon.image(for: kind)
+        item.representedObject = kind.rawValue
+        return (kind, item)
+    }
+
     private lazy var exitLayoutItem = menuItem(
         title: "退出当前布局",
         action: #selector(exitLayout),
@@ -49,8 +50,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         let menu = NSMenu()
         menu.delegate = self
-        menu.addItem(split2Item)
-        menu.addItem(split4Item)
+        for entry in layoutItems {
+            menu.addItem(entry.item)
+        }
         menu.addItem(.separator())
         menu.addItem(exitLayoutItem)
         menu.addItem(.separator())
@@ -70,18 +72,21 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         let activeKind = coordinator.session?.kind
-        split2Item.state = activeKind == .split2 ? .on : .off
-        split4Item.state = activeKind == .split4 ? .on : .off
+        for entry in layoutItems {
+            entry.item.state = activeKind == entry.kind ? .on : .off
+        }
         exitLayoutItem.isEnabled = coordinator.hasActiveLayout
         permissionItem.state = Permissions.isAccessibilityGranted ? .on : .off
     }
 
-    @objc private func startSplit2() {
-        coordinator.startLayout(.split2)
-    }
-
-    @objc private func startSplit4() {
-        coordinator.startLayout(.split4)
+    @objc private func startLayoutFromMenu(_ sender: NSMenuItem) {
+        guard
+            let rawValue = sender.representedObject as? String,
+            let kind = LayoutKind(rawValue: rawValue)
+        else {
+            return
+        }
+        coordinator.startLayout(kind)
     }
 
     @objc private func exitLayout() {

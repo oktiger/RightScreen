@@ -38,25 +38,49 @@ enum PaneMove {
         kind: LayoutKind
     ) -> Int? {
         switch kind {
+        case .fullScreen:
+            // 单格无邻格，不提供移动。
+            return nil
+
         case .split2:
             switch (paneIndex, direction) {
-            case (0, .right): 1
-            case (1, .left): 0
-            default: nil
+            case (0, .right): return 1
+            case (1, .left): return 0
+            default: return nil
+            }
+
+        case .topBottom:
+            // 0 上，1 下
+            switch (paneIndex, direction) {
+            case (0, .down): return 1
+            case (1, .up): return 0
+            default: return nil
+            }
+
+        case .focusStack:
+            // 0 左主栏，1 右上，2 右下。
+            // 左 → 右：落到右上，避免「竖条向右」目标歧义。
+            switch (paneIndex, direction) {
+            case (0, .right): return 1
+            case (1, .left): return 0
+            case (1, .down): return 2
+            case (2, .left): return 0
+            case (2, .up): return 1
+            default: return nil
             }
 
         case .split4:
             // 0 TL, 1 TR, 2 BL, 3 BR
             switch (paneIndex, direction) {
-            case (0, .right): 1
-            case (0, .down): 2
-            case (1, .left): 0
-            case (1, .down): 3
-            case (2, .right): 3
-            case (2, .up): 0
-            case (3, .left): 2
-            case (3, .up): 1
-            default: nil
+            case (0, .right): return 1
+            case (0, .down): return 2
+            case (1, .left): return 0
+            case (1, .down): return 3
+            case (2, .right): return 3
+            case (2, .up): return 0
+            case (3, .left): return 2
+            case (3, .up): return 1
+            default: return nil
             }
         }
     }
