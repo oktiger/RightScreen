@@ -10,38 +10,22 @@ final class LayoutCoordinator {
     private var closingWindowIDs = Set<CGWindowID>()
     private var pendingWindowSightings: [CGWindowID: Int] = [:]
     private(set) var session: LayoutSession?
+    private(set) var bentoSession: BentoSession?
 
     var hasActiveLayout: Bool {
-        session != nil
+        session != nil || bentoSession != nil
+    }
+
+    var isBentoActive: Bool {
+        bentoSession != nil
     }
 
     func startLayout(_ kind: LayoutKind) {
-        guard Permissions.isAccessibilityGranted else {
-            Permissions.requestAccessibility()
-            showMessage(
-                title: "需要辅助功能权限",
-                message: "请在“系统设置 → 隐私与安全性 → 辅助功能”中允许 RightScreen，然后再次选择布局。"
-            )
-            return
-        }
+        guard ensureAccessibility() else { return }
+        guard let screen = primaryScreen() else { return }
+        guard let windows = manageableWindows() else { return }
 
-        if session != nil {
-            exitLayout()
-        }
-
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
-            showMessage(title: "无法开始布局", message: "RightScreen 未找到可用显示器。")
-            return
-        }
-
-        let windows = windowIndexer.currentSpaceWindows()
-        guard !windows.isEmpty else {
-            showMessage(
-                title: "没有可管理窗口",
-                message: "请先打开至少一个普通 App 窗口；最小化、全屏和不可缩放窗口会被跳过。"
-            )
-            return
-        }
+        exitLayout()
 
         let windowsByPane = LayoutEngine.assign(windows, paneCount: kind.paneCount)
         let geometries = LayoutEngine.geometries(for: kind, in: screen.visibleFrame)
@@ -60,29 +44,185 @@ final class LayoutCoordinator {
         startRefreshingWindows()
     }
 
-    func exitLayout() {
-        guard let session else { return }
-        refreshTimer?.invalidate()
-        refreshTimer = nil
-        self.session = nil
+    func startBento() {
+        guard ensureAccessibility() else { return }
+        guard let screen = primaryScreen() else { return }
+        guard let windows = manageableWindows() else { return }
+        guard let tree = BentoEngine.buildTree(windows) else { return }
+
+        exitLayout()
+
+        let newSession = BentoSession(screen: screen, windows: windows, tree: tree)
+        bentoSession = newSession
         closingWindowIDs.removeAll()
         pendingWindowSightings.removeAll()
 
-        for panel in session.panels.compactMap({ $0 }) {
-            panel.orderOut(nil)
-            panel.close()
+        applyBentoFrames(newSession)
+        installBentoChrome(for: newSession)
+        startRefreshingWindows()
+    }
+
+    func exitLayout() {
+        refreshTimer?.invalidate()
+        refreshTimer = nil
+        closingWindowIDs.removeAll()
+        pendingWindowSightings.removeAll()
+
+        if let session {
+            self.session = nil
+            for panel in session.panels.compactMap({ $0 }) {
+                panel.orderOut(nil)
+                panel.close()
+            }
+            restoreOriginalFrames(session.originalFrames, windows: session.panes.flatMap(\.windows))
         }
 
-        for window in session.panes.flatMap(\.windows) {
-            guard
-                windowController.isAlive(window),
-                let originalFrame = session.originalFrames[window.windowID]
-            else {
-                continue
-            }
-            windowController.setAccessibilityFrame(originalFrame, for: window)
+        if let bentoSession {
+            self.bentoSession = nil
+            bentoSession.dividerController?.tearDown()
+            bentoSession.previewPanel?.hidePreview()
+            bentoSession.previewPanel?.close()
+            restoreOriginalFrames(
+                bentoSession.originalFrames,
+                windows: BentoEngine.leafValues(bentoSession.tree)
+            )
         }
     }
+
+    // MARK: - Bento
+
+    private func installBentoChrome(for session: BentoSession) {
+        let preview = BentoPreviewPanel(screenFrame: session.rootFrame)
+        session.previewPanel = preview
+
+        let dividers = BentoDividerController(
+            onDragBegan: { [weak self] _ in
+                self?.beginBentoDividerDrag()
+            },
+            onDragChanged: { [weak self] path, location in
+                self?.updateBentoDividerDrag(path: path, locationInScreen: location)
+            },
+            onDragEnded: { [weak self] in
+                self?.endBentoDividerDrag()
+            }
+        )
+        session.dividerController = dividers
+        dividers.update(dividers: session.dividerLayouts())
+    }
+
+    private func applyBentoFrames(_ session: BentoSession) {
+        for leaf in session.leafLayouts() {
+            windowController.setAppKitFrame(leaf.frame, on: session.screen, for: leaf.value)
+            windowController.raise(leaf.value)
+        }
+    }
+
+    private func beginBentoDividerDrag() {
+        guard let session = bentoSession else { return }
+        session.isDraggingDivider = true
+        session.previewPanel?.show(tiles: session.tilePresentations(), in: session.rootFrame)
+    }
+
+    private func updateBentoDividerDrag(path: [BentoChildSlot], locationInScreen: CGPoint) {
+        guard let session = bentoSession else { return }
+        guard
+            let splitFrame = BentoEngine.splitFrame(
+                at: path,
+                in: session.tree,
+                rootFrame: session.rootFrame,
+                gap: session.gap
+            )
+        else {
+            return
+        }
+
+        let orientation: BentoSplitOrientation
+        if let match = session.dividerLayouts().first(where: { $0.path == path }) {
+            orientation = match.orientation
+        } else {
+            return
+        }
+
+        let location = orientation == .vertical ? locationInScreen.x : locationInScreen.y
+        session.tree = BentoEngine.updatingRatio(
+            in: session.tree,
+            path: path,
+            location: location,
+            splitFrame: splitFrame,
+            gap: session.gap
+        )
+        session.previewPanel?.show(tiles: session.tilePresentations(), in: session.rootFrame)
+        session.dividerController?.update(dividers: session.dividerLayouts())
+        // 预览全屏且 ignoresMouseEvents；保持其在把手之上，事件仍穿透到下层把手。
+        session.previewPanel?.orderFrontRegardless()
+    }
+
+    private func endBentoDividerDrag() {
+        guard let session = bentoSession else { return }
+        session.isDraggingDivider = false
+        session.previewPanel?.hidePreview()
+        applyBentoFrames(session)
+        session.dividerController?.update(dividers: session.dividerLayouts())
+    }
+
+    private func refreshBentoSession(_ session: BentoSession) {
+        guard !session.isDraggingDivider else { return }
+
+        let previousValues = BentoEngine.leafValues(session.tree)
+        let liveWindows = previousValues.filter(windowController.isAlive)
+        if liveWindows.count != previousValues.count {
+            if liveWindows.isEmpty {
+                exitLayout()
+                return
+            }
+            if let rebuilt = BentoEngine.buildTree(liveWindows) {
+                session.tree = rebuilt
+                applyBentoFrames(session)
+                session.dividerController?.update(dividers: session.dividerLayouts())
+            }
+        }
+
+        let knownIDs = Set(liveWindows.map(\.windowID))
+        let candidates = windowIndexer.currentSpaceWindows().filter { candidate in
+            !knownIDs.contains(candidate.windowID)
+                && !closingWindowIDs.contains(candidate.windowID)
+                && !liveWindows.contains(where: { $0.refersToSameAccessibilityWindow(as: candidate) })
+        }
+
+        let visibleCandidateIDs = Set(candidates.map(\.windowID))
+        pendingWindowSightings = pendingWindowSightings.filter {
+            visibleCandidateIDs.contains($0.key)
+        }
+
+        for candidate in candidates {
+            let sightings = pendingWindowSightings[candidate.windowID, default: 0] + 1
+            guard sightings >= Self.requiredNewWindowSightings else {
+                pendingWindowSightings[candidate.windowID] = sightings
+                continue
+            }
+            pendingWindowSightings.removeValue(forKey: candidate.windowID)
+            addNewWindowToBento(candidate, session: session)
+        }
+    }
+
+    private func addNewWindowToBento(_ window: ManagedWindow, session: BentoSession) {
+        var windows = BentoEngine.leafValues(session.tree)
+        guard
+            !windows.contains(where: { $0.windowID == window.windowID }),
+            !windows.contains(where: { $0.refersToSameAccessibilityWindow(as: window) })
+        else {
+            return
+        }
+
+        session.originalFrames[window.windowID] = window.frame
+        windows.append(window)
+        guard let rebuilt = BentoEngine.buildTree(windows) else { return }
+        session.tree = rebuilt
+        applyBentoFrames(session)
+        session.dividerController?.update(dividers: session.dividerLayouts())
+    }
+
+    // MARK: - Tab layout (existing)
 
     private func applyInitialLayout(_ session: LayoutSession) {
         for pane in session.panes where !pane.windows.isEmpty {
@@ -161,8 +301,14 @@ final class LayoutCoordinator {
     }
 
     @objc private func refreshManagedWindows() {
-        guard let session else { return }
+        if let session {
+            refreshTabSession(session)
+        } else if let bentoSession {
+            refreshBentoSession(bentoSession)
+        }
+    }
 
+    private func refreshTabSession(_ session: LayoutSession) {
         removeClosedWindows(from: session)
 
         let managedWindows = session.panes.flatMap(\.windows)
@@ -263,9 +409,6 @@ final class LayoutCoordinator {
             for: selectedWindow
         )
         guard windowController.raise(selectedWindow) else {
-            // Some apps transiently reject AX actions while being activated. Keep
-            // the previous selection instead of showing a selected Tab whose
-            // window never came to the front.
             createOrUpdateTabBar(forPane: paneIndex, in: session)
             return
         }
@@ -375,6 +518,55 @@ final class LayoutCoordinator {
         windowController.raise(window)
         createOrUpdateTabBar(forPane: sourcePaneIndex, in: session)
         createOrUpdateTabBar(forPane: targetPaneIndex, in: session)
+    }
+
+    // MARK: - Shared helpers
+
+    private func ensureAccessibility() -> Bool {
+        guard Permissions.isAccessibilityGranted else {
+            Permissions.requestAccessibility()
+            showMessage(
+                title: "需要辅助功能权限",
+                message: "请在“系统设置 → 隐私与安全性 → 辅助功能”中允许 RightScreen，然后再次选择布局。"
+            )
+            return false
+        }
+        return true
+    }
+
+    private func primaryScreen() -> NSScreen? {
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+            showMessage(title: "无法开始布局", message: "RightScreen 未找到可用显示器。")
+            return nil
+        }
+        return screen
+    }
+
+    private func manageableWindows() -> [ManagedWindow]? {
+        let windows = windowIndexer.currentSpaceWindows()
+        guard !windows.isEmpty else {
+            showMessage(
+                title: "没有可管理窗口",
+                message: "请先打开至少一个普通 App 窗口；最小化、全屏和不可缩放窗口会被跳过。"
+            )
+            return nil
+        }
+        return windows
+    }
+
+    private func restoreOriginalFrames(
+        _ originalFrames: [CGWindowID: CGRect],
+        windows: [ManagedWindow]
+    ) {
+        for window in windows {
+            guard
+                windowController.isAlive(window),
+                let originalFrame = originalFrames[window.windowID]
+            else {
+                continue
+            }
+            windowController.setAccessibilityFrame(originalFrame, for: window)
+        }
     }
 
     private func showMessage(title: String, message: String) {

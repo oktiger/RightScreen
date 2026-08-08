@@ -21,6 +21,36 @@ enum LayoutKindIcon {
         return image
     }
 
+    /// Bento Mode 菜单图标：不规则四格示意（交错横线）。
+    static func bentoImage() -> NSImage {
+        let size = canvasSize
+        let image = NSImage(size: size, flipped: false) { rect in
+            let plate = rect.insetBy(dx: outerInset, dy: outerInset)
+            drawRoundedRect(plate, radius: outerCorner, color: plateColor)
+
+            let content = plate.insetBy(dx: paneGap, dy: paneGap)
+            let midX = content.minX + floor((content.width - paneGap) / 2)
+            let rightX = midX + paneGap
+            let leftWidth = midX - content.minX
+            let rightWidth = content.maxX - rightX
+            let leftSplit = content.minY + floor(content.height * 0.38)
+            let rightSplit = content.minY + floor(content.height * 0.62)
+
+            let panes = [
+                CGRect(x: content.minX, y: leftSplit + paneGap, width: leftWidth, height: content.maxY - leftSplit - paneGap),
+                CGRect(x: content.minX, y: content.minY, width: leftWidth, height: leftSplit - content.minY),
+                CGRect(x: rightX, y: rightSplit + paneGap, width: rightWidth, height: content.maxY - rightSplit - paneGap),
+                CGRect(x: rightX, y: content.minY, width: rightWidth, height: rightSplit - content.minY)
+            ]
+            for pane in panes {
+                drawRoundedRect(pane, radius: paneCorner, color: paneColor)
+            }
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
     private static func draw(kind: LayoutKind, in rect: CGRect) {
         let plate = rect.insetBy(dx: outerInset, dy: outerInset)
         drawRoundedRect(plate, radius: outerCorner, color: plateColor)

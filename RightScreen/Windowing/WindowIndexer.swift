@@ -105,6 +105,7 @@ final class WindowIndexer {
         guard !excludedOwnerNames.contains(ownerName) else { return nil }
 
         guard let runningApp = NSRunningApplication(processIdentifier: ownerPID) else { return nil }
+        guard runningApp != .current else { return nil }
         guard runningApp.activationPolicy == .regular else { return nil }
         if let bundleIdentifier = runningApp.bundleIdentifier,
            excludedBundleIdentifiers.contains(bundleIdentifier) {

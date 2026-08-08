@@ -16,6 +16,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         return (kind, item)
     }
 
+    private lazy var bentoItem: NSMenuItem = {
+        let item = menuItem(
+            title: "Bento",
+            action: #selector(startBento),
+            keyEquivalent: ""
+        )
+        item.image = LayoutKindIcon.bentoImage()
+        return item
+    }()
+
     private lazy var exitLayoutItem = menuItem(
         title: "退出当前布局",
         action: #selector(exitLayout),
@@ -50,9 +60,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         let menu = NSMenu()
         menu.delegate = self
+
+        menu.addItem(.sectionHeader(title: "Tab Mode"))
         for entry in layoutItems {
             menu.addItem(entry.item)
         }
+
+        menu.addItem(.separator())
+        menu.addItem(.sectionHeader(title: "Bento Mode"))
+        menu.addItem(bentoItem)
+
         menu.addItem(.separator())
         menu.addItem(exitLayoutItem)
         menu.addItem(.separator())
@@ -75,6 +92,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         for entry in layoutItems {
             entry.item.state = activeKind == entry.kind ? .on : .off
         }
+        bentoItem.state = coordinator.isBentoActive ? .on : .off
         exitLayoutItem.isEnabled = coordinator.hasActiveLayout
         permissionItem.state = Permissions.isAccessibilityGranted ? .on : .off
     }
@@ -87,6 +105,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             return
         }
         coordinator.startLayout(kind)
+    }
+
+    @objc private func startBento() {
+        coordinator.startBento()
     }
 
     @objc private func exitLayout() {
