@@ -25,11 +25,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$staging_contents/MacOS" "$staging_contents/Resources"
-cp "$repository_root/RightScreen/Resources/Info.plist" "$staging_contents/Info.plist"
-cp "$repository_root/RightScreen/Resources/AppIcon.icns" "$staging_contents/Resources/AppIcon.icns"
-cp "$bin_dir/RightScreen" "$staging_contents/MacOS/RightScreen"
-"$repository_root/Scripts/sign-app.sh" "$staging_app"
+"$repository_root/Scripts/package-app.sh" "$bin_dir/RightScreen" "$staging_app"
 
 # 让旧进程先退出，避免新旧实例同时创建菜单栏状态项。
 kill "$running_pid" 2>/dev/null || true
