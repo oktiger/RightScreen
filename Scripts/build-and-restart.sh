@@ -14,13 +14,14 @@ cd "$repository_root"
 
 swift build
 bin_dir="$(swift build --show-bin-path)"
-staging_app="${app_path}.building-$$.app"
+
+# 在目标目录旁组装，避免直接写半成品；最终原地替换 Contents，保持 .app 路径稳定。
+staging_root="$(mktemp -d "${app_path}.staging.XXXXXX")"
+staging_app="$staging_root/RightScreen.app"
 staging_contents="$staging_app/Contents"
 
 cleanup() {
-    if [[ -d "$staging_app" ]]; then
-        rm -rf "$staging_app"
-    fi
+    rm -rf "$staging_root"
 }
 trap cleanup EXIT
 
@@ -37,11 +38,12 @@ for _ in {1..50}; do
     sleep 0.1
 done
 
-timestamp="$(date +%Y%m%d-%H%M%S)"
-backup_path="${app_path}.backup-${timestamp}"
-if [[ -e "$app_path" ]]; then
-    mv "$app_path" "$backup_path"
-fi
-mv "$staging_app" "$app_path"
+mkdir -p "$app_path"
+# 原地替换 Contents，避免把旧 bundle 挪成 .backup，造成 TCC/LaunchServices 多份身份。
+rm -rf "$app_path/Contents"
+mv "$staging_contents" "$app_path/Contents"
+
+# 移动后必须再签最终路径，确保 DR 绑定到实际运行的 bundle。
+"$repository_root/Scripts/sign-app.sh" "$app_path"
 
 open "$app_path"

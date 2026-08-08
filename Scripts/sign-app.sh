@@ -7,6 +7,11 @@ if [[ $# -ne 1 ]]; then
 fi
 
 app_path="$1"
+if [[ ! -d "$app_path/Contents" ]]; then
+    print -u2 "不是有效的 app bundle：$app_path"
+    exit 2
+fi
+
 bundle_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_path/Contents/Info.plist")"
 
 if [[ -n "${RIGHTSCREEN_CODE_SIGN_IDENTITY:-}" ]]; then
@@ -72,7 +77,7 @@ else
             -r trustRoot \
             -p codeSign \
             -k "$signing_keychain" \
-            "$certificate_file"
+            "$certificate_file" || true
     fi
 
     security unlock-keychain -p "$keychain_password" "$signing_keychain"
@@ -92,6 +97,12 @@ else
     fi
 fi
 
+# 禁止 adhoc（-）：否则 TCC 按 CDHash 绑定，每次重建都会丢辅助功能授权。
+if [[ "$signing_identity" == "-" ]]; then
+    print -u2 "拒绝使用 adhoc 签名。辅助功能授权需要稳定的代码签名身份。"
+    exit 1
+fi
+
 codesign \
     --force \
     --deep \
@@ -100,3 +111,22 @@ codesign \
     "$app_path"
 
 codesign --verify --deep --strict --verbose=2 "$app_path"
+
+requirement="$(codesign -d -r- "$app_path" 2>&1 | awk -F' => ' '/designated/{print $2; exit}')"
+if [[ -z "$requirement" ]]; then
+    print -u2 "无法读取 Designated Requirement：$app_path"
+    exit 1
+fi
+if [[ "$requirement" != *'certificate'* ]]; then
+    print -u2 "签名后仍不是证书身份（当前 DR：$requirement）"
+    print -u2 "adhoc/linker-signed 会导致每次构建都要重新授权辅助功能。"
+    exit 1
+fi
+if [[ "$requirement" != *"$bundle_identifier"* ]]; then
+    print -u2 "Designated Requirement 未包含 Bundle ID $bundle_identifier"
+    print -u2 "当前 DR：$requirement"
+    exit 1
+fi
+
+print -- "已使用稳定身份签名：$app_path"
+print -- "DR：$requirement"

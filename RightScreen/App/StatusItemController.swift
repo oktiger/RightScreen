@@ -116,7 +116,24 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     @objc private func openAccessibilitySettings() {
-        Permissions.openAccessibilitySettings()
+        if Permissions.isAccessibilityGranted {
+            Permissions.openAccessibilitySettings(promptIfNeeded: false)
+            return
+        }
+
+        let granted = Permissions.requestAccessibility()
+        if granted || Permissions.isAccessibilityGranted {
+            return
+        }
+
+        let help = Permissions.accessibilityHelpMessage()
+        Permissions.openAccessibilitySettings(promptIfNeeded: false)
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = help.title
+        alert.informativeText = help.message
+        alert.addButton(withTitle: "好")
+        alert.runModal()
     }
 
     @objc private func generateApp() {

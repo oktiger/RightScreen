@@ -523,15 +523,20 @@ final class LayoutCoordinator {
     // MARK: - Shared helpers
 
     private func ensureAccessibility() -> Bool {
-        guard Permissions.isAccessibilityGranted else {
-            Permissions.requestAccessibility()
-            showMessage(
-                title: "需要辅助功能权限",
-                message: "请在“系统设置 → 隐私与安全性 → 辅助功能”中允许 RightScreen，然后再次选择布局。"
-            )
-            return false
+        if Permissions.isAccessibilityGranted {
+            return true
         }
-        return true
+
+        // 先只弹系统框；不要立刻叠自定义 Alert，否则会出现「系统授权 + 好」双弹窗。
+        let granted = Permissions.requestAccessibility()
+        if granted || Permissions.isAccessibilityGranted {
+            return true
+        }
+
+        let help = Permissions.accessibilityHelpMessage()
+        Permissions.openAccessibilitySettings(promptIfNeeded: false)
+        showMessage(title: help.title, message: help.message)
+        return false
     }
 
     private func primaryScreen() -> NSScreen? {
