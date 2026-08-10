@@ -10,21 +10,17 @@ enum BuildAndRestartService {
 
     @MainActor
     static func start() {
-        let scriptURL = repositoryRoot.appendingPathComponent("Scripts/build-and-restart.sh")
-        let appURL = Bundle.main.bundleURL.standardizedFileURL
+        let scriptURL = repositoryRoot.appendingPathComponent("Scripts/install-local.sh")
 
         guard FileManager.default.isExecutableFile(atPath: scriptURL.path) else {
-            showError("找不到构建脚本", "请确认 Scripts/build-and-restart.sh 存在且可执行。")
+            showError("找不到升级脚本", "请确认 Scripts/install-local.sh 存在且可执行。")
             return
         }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = [
-            scriptURL.path,
-            repositoryRoot.path,
-            appURL.path,
-            String(ProcessInfo.processInfo.processIdentifier)
+            scriptURL.path
         ]
 
         let logURL = URL(fileURLWithPath: NSTemporaryDirectory())

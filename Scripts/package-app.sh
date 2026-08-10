@@ -53,6 +53,12 @@ if [[ "$bundle_icon" != "AppIcon" ]]; then
     exit 1
 fi
 
+bundle_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$contents_dir/Info.plist" 2>/dev/null || true)"
+if [[ "$bundle_identifier" != "com.rightscreen.RightScreen" ]]; then
+    print -u2 "打包失败：CFBundleIdentifier 必须为 com.rightscreen.RightScreen，实际为：${bundle_identifier:-<空>}"
+    exit 1
+fi
+
 # Accessibility 的 TCC 授权绑定 Designated Requirement；禁止直接留下 SwiftPM 的 adhoc 签名。
 "$project_dir/Scripts/sign-app.sh" "$app_path"
 

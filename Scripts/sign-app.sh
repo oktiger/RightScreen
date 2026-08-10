@@ -13,12 +13,20 @@ if [[ ! -d "$app_path/Contents" ]]; then
 fi
 
 bundle_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_path/Contents/Info.plist")"
+expected_bundle_identifier="com.rightscreen.RightScreen"
+signing_directory="$HOME/Library/Application Support/RightScreen/CodeSigning"
+requirement_file="$signing_directory/designated-requirement"
+
+if [[ "$bundle_identifier" != "$expected_bundle_identifier" ]]; then
+    print -u2 "拒绝签名：Bundle ID 必须保持为 $expected_bundle_identifier，实际为 $bundle_identifier"
+    print -u2 "修改 Bundle ID 会让 macOS 将升级版本视为另一个应用，并丢失辅助功能授权。"
+    exit 1
+fi
 
 if [[ -n "${RIGHTSCREEN_CODE_SIGN_IDENTITY:-}" ]]; then
     signing_identity="$RIGHTSCREEN_CODE_SIGN_IDENTITY"
 else
     signing_name="RightScreen Local Development"
-    signing_directory="$HOME/Library/Application Support/RightScreen/CodeSigning"
     signing_keychain="$signing_directory/RightScreen.keychain-db"
     password_file="$signing_directory/keychain-password"
     certificate_file="$signing_directory/RightScreen.cer"
@@ -105,7 +113,7 @@ fi
 
 codesign \
     --force \
-    --deep \
+    --options runtime \
     --sign "$signing_identity" \
     --identifier "$bundle_identifier" \
     "$app_path"
@@ -126,6 +134,28 @@ if [[ "$requirement" != *"$bundle_identifier"* ]]; then
     print -u2 "Designated Requirement 未包含 Bundle ID $bundle_identifier"
     print -u2 "当前 DR：$requirement"
     exit 1
+fi
+
+# TCC 使用 Designated Requirement 识别同一个应用。首次成功签名后将其锁定；
+# 后续即使有人改用另一张证书，打包也会直接失败，而不是产出一个会丢权限的升级包。
+umask 077
+mkdir -p "$signing_directory"
+if [[ -f "$requirement_file" ]]; then
+    pinned_requirement="$(<"$requirement_file")"
+    if [[ "$requirement" != "$pinned_requirement" ]]; then
+        if [[ "${RIGHTSCREEN_ALLOW_SIGNING_MIGRATION:-}" == "1" ]]; then
+            print -rn -- "$requirement" > "$requirement_file"
+            print -- "已显式迁移签名身份；macOS 将需要最后一次重新授权辅助功能。"
+        else
+            print -u2 "拒绝产出签名身份漂移的升级包。"
+            print -u2 "已锁定 DR：$pinned_requirement"
+            print -u2 "当前 DR：$requirement"
+            print -u2 "只有计划更换证书时才可设置 RIGHTSCREEN_ALLOW_SIGNING_MIGRATION=1，并接受一次重新授权。"
+            exit 1
+        fi
+    fi
+else
+    print -rn -- "$requirement" > "$requirement_file"
 fi
 
 print -- "已使用稳定身份签名：$app_path"

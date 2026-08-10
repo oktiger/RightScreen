@@ -523,19 +523,21 @@ final class LayoutCoordinator {
     // MARK: - Shared helpers
 
     private func ensureAccessibility() -> Bool {
+        if let issue = Permissions.signingIssue {
+            let help = Permissions.accessibilityHelpMessage(signingIssue: issue)
+            showMessage(title: help.title, message: help.message)
+            return false
+        }
+
         if Permissions.isAccessibilityGranted {
             return true
         }
 
-        // 先只弹系统框；不要立刻叠自定义 Alert，否则会出现「系统授权 + 好」双弹窗。
+        // 系统提示本身已包含“打开系统设置”，这里不再叠加自定义 Alert。
         let granted = Permissions.requestAccessibility()
         if granted || Permissions.isAccessibilityGranted {
             return true
         }
-
-        let help = Permissions.accessibilityHelpMessage()
-        Permissions.openAccessibilitySettings(promptIfNeeded: false)
-        showMessage(title: help.title, message: help.message)
         return false
     }
 

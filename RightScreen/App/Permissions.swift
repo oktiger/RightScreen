@@ -3,23 +3,33 @@ import ApplicationServices
 import Security
 
 enum Permissions {
+    private static let expectedBundleIdentifier = "com.rightscreen.RightScreen"
+
     static var isAccessibilityGranted: Bool {
         AXIsProcessTrusted()
     }
 
-    /// 当前进程是否为 adhoc / linker-signed。此类签名的 Designated Requirement 绑定 CDHash，
-    /// 每次重新编译都会变化，系统会认为「未授权」，表现为反复要求辅助功能权限。
-    static var isAdHocSigned: Bool {
+    /// 返回会破坏 TCC 身份连续性的打包问题；nil 表示证书签名与 Bundle ID 均符合约束。
+    static var signingIssue: String? {
+        let actualBundleIdentifier = Bundle.main.bundleIdentifier ?? "<空>"
+        guard actualBundleIdentifier == expectedBundleIdentifier else {
+            return "Bundle ID 已变为 \(actualBundleIdentifier)，预期为 \(expectedBundleIdentifier)。"
+        }
+
         var code: SecCode?
         guard SecCodeCopySelf([], &code) == errSecSuccess, let code else {
-            return true
+            return "无法读取当前进程的代码签名。"
         }
 
         var staticCode: SecStaticCode?
         guard SecCodeCopyStaticCode(code, SecCSFlags(), &staticCode) == errSecSuccess,
               let staticCode
         else {
-            return true
+            return "无法读取当前 app 的静态代码签名。"
+        }
+
+        guard SecStaticCodeCheckValidity(staticCode, SecCSFlags(), nil) == errSecSuccess else {
+            return "当前 app 的代码签名已损坏或与内容不匹配。"
         }
 
         var information: CFDictionary?
@@ -27,21 +37,23 @@ enum Permissions {
         guard SecCodeCopySigningInformation(staticCode, flags, &information) == errSecSuccess,
               let information = information as? [String: Any]
         else {
-            return true
+            return "无法读取当前 app 的签名证书信息。"
         }
 
         if let certificates = information[kSecCodeInfoCertificates as String] as? [Any],
            !certificates.isEmpty {
-            return false
+            return nil
         }
 
-        // linker-signed / 纯 adhoc 通常没有证书链。
-        return true
+        return "当前 app 使用了临时 adhoc/linker-signed 签名。"
     }
 
     /// 弹出系统辅助功能授权框（如需要）。不要与自定义 Alert 叠在一起调用。
     @discardableResult
     static func requestAccessibility() -> Bool {
+        guard signingIssue == nil else {
+            return false
+        }
         if isAccessibilityGranted {
             return true
         }
@@ -68,16 +80,16 @@ enum Permissions {
     }
 
     @MainActor
-    static func accessibilityHelpMessage() -> (title: String, message: String) {
-        if isAdHocSigned {
+    static func accessibilityHelpMessage(signingIssue: String?) -> (title: String, message: String) {
+        if let signingIssue {
             return (
                 "辅助功能授权无法保持",
                 """
-                当前 RightScreen 使用了临时签名（adhoc），系统按每次编译的校验和记住授权，所以会反复要求权限，开关旧条目也无效。
+                当前安装包身份不正确：\(signingIssue)
 
                 请退出应用后执行：
                 Scripts/run-local.sh
-                或菜单「生成 app」重新打包（会使用稳定的本地开发证书签名）。
+                或菜单“生成并升级 app”重新安装到 /Applications/RightScreen.app。
 
                 然后在“系统设置 → 隐私与安全性 → 辅助功能”中删除旧的 RightScreen 条目，再重新勾选一次即可长期有效。
                 """

@@ -37,7 +37,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         keyEquivalent: ""
     )
     private lazy var generateAppItem = menuItem(
-        title: "生成 app",
+        title: "生成并升级 app",
         action: #selector(generateApp),
         keyEquivalent: ""
     )
@@ -116,20 +116,23 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     @objc private func openAccessibilitySettings() {
+        if let issue = Permissions.signingIssue {
+            showSigningIssue(issue)
+            return
+        }
+
         if Permissions.isAccessibilityGranted {
             Permissions.openAccessibilitySettings(promptIfNeeded: false)
             return
         }
 
-        let granted = Permissions.requestAccessibility()
-        if granted || Permissions.isAccessibilityGranted {
-            return
-        }
+        Permissions.openAccessibilitySettings(promptIfNeeded: true)
+    }
 
-        let help = Permissions.accessibilityHelpMessage()
-        Permissions.openAccessibilitySettings(promptIfNeeded: false)
+    private func showSigningIssue(_ issue: String) {
+        let help = Permissions.accessibilityHelpMessage(signingIssue: issue)
         let alert = NSAlert()
-        alert.alertStyle = .informational
+        alert.alertStyle = .warning
         alert.messageText = help.title
         alert.informativeText = help.message
         alert.addButton(withTitle: "好")
