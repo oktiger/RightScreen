@@ -29,6 +29,15 @@ struct PaneMoveTests {
         #expect(PaneMove.destinationPaneIndex(from: 2, direction: .left, kind: .focusStack) == 0)
     }
 
+    @Test func stackFocusLeftFromRightLandsOnTopLeft() {
+        #expect(PaneMove.destinationPaneIndex(from: 2, direction: .left, kind: .stackFocus) == 0)
+        #expect(PaneMove.availableDirections(from: 0, kind: .stackFocus) == [.right, .down])
+        #expect(PaneMove.availableDirections(from: 1, kind: .stackFocus) == [.right, .up])
+        #expect(PaneMove.availableDirections(from: 2, kind: .stackFocus) == [.left])
+        #expect(PaneMove.destinationPaneIndex(from: 0, direction: .down, kind: .stackFocus) == 1)
+        #expect(PaneMove.destinationPaneIndex(from: 1, direction: .right, kind: .stackFocus) == 2)
+    }
+
     @Test func split4OffersTwoAdjacentDirectionsPerCorner() {
         #expect(PaneMove.availableDirections(from: 0, kind: .split4) == [.right, .down])
         #expect(PaneMove.availableDirections(from: 1, kind: .split4) == [.left, .down])

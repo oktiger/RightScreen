@@ -69,6 +69,18 @@ enum PaneMove {
             default: return nil
             }
 
+        case .stackFocus:
+            // 0 左上，1 左下，2 右主栏。
+            // 右 → 左：落到左上，对称于 focusStack。
+            switch (paneIndex, direction) {
+            case (0, .down): return 1
+            case (0, .right): return 2
+            case (1, .up): return 0
+            case (1, .right): return 2
+            case (2, .left): return 0
+            default: return nil
+            }
+
         case .split4:
             // 0 TL, 1 TR, 2 BL, 3 BR
             switch (paneIndex, direction) {

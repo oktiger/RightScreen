@@ -6,8 +6,10 @@ enum LayoutKind: String, CaseIterable, Sendable {
     case split2
     /// 上下二分。
     case topBottom
-    /// 左侧主栏 + 右侧上下堆叠（3 格）。
+    /// 1+2：左侧主栏 + 右侧上下堆叠（3 格）。
     case focusStack
+    /// 2+1：左侧上下堆叠 + 右侧主栏（3 格，focusStack 镜像）。
+    case stackFocus
     /// 四角等分。
     case split4
 
@@ -15,7 +17,7 @@ enum LayoutKind: String, CaseIterable, Sendable {
         switch self {
         case .fullScreen: 1
         case .split2, .topBottom: 2
-        case .focusStack: 3
+        case .focusStack, .stackFocus: 3
         case .split4: 4
         }
     }
@@ -25,7 +27,8 @@ enum LayoutKind: String, CaseIterable, Sendable {
         case .fullScreen: "全屏"
         case .split2: "左右二分"
         case .topBottom: "上下二分"
-        case .focusStack: "主栏 + 堆叠"
+        case .focusStack: "1+2"
+        case .stackFocus: "2+1"
         case .split4: "四等分"
         }
     }

@@ -73,6 +73,19 @@ struct LayoutEngineTests {
         ])
     }
 
+    @Test func stackFocusGeometryIsLeftStackPlusRightMain() {
+        let panes = LayoutEngine.geometries(
+            for: .stackFocus,
+            in: CGRect(x: 10, y: 20, width: 1000, height: 800)
+        )
+
+        #expect(panes.map(\.paneFrame) == [
+            CGRect(x: 10, y: 420, width: 500, height: 400),
+            CGRect(x: 10, y: 20, width: 500, height: 400),
+            CGRect(x: 510, y: 20, width: 500, height: 800)
+        ])
+    }
+
     @Test func split4UsesTopLeftTopRightBottomLeftBottomRightOrder() {
         let panes = LayoutEngine.geometries(
             for: .split4,

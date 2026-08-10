@@ -96,6 +96,13 @@ enum LayoutKindIcon {
                 CGRect(x: rightX, y: frame.minY, width: rightWidth, height: bottomHeight)
             ]
 
+        case .stackFocus:
+            return [
+                CGRect(x: frame.minX, y: topY, width: leftWidth, height: topHeight),
+                CGRect(x: frame.minX, y: frame.minY, width: leftWidth, height: bottomHeight),
+                CGRect(x: rightX, y: frame.minY, width: rightWidth, height: frame.height)
+            ]
+
         case .split4:
             return [
                 CGRect(x: frame.minX, y: topY, width: leftWidth, height: topHeight),

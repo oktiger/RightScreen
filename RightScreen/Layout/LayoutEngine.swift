@@ -91,6 +91,24 @@ enum LayoutEngine {
                 )
             ]
 
+        case .stackFocus:
+            // 0 左上，1 左下，2 右主栏。从右格向左移动时落到左上（见 PaneMove）。
+            return [
+                CGRect(
+                    x: frame.minX,
+                    y: frame.minY + bottomHeight,
+                    width: leftWidth,
+                    height: topHeight
+                ),
+                CGRect(x: frame.minX, y: frame.minY, width: leftWidth, height: bottomHeight),
+                CGRect(
+                    x: frame.minX + leftWidth,
+                    y: frame.minY,
+                    width: rightWidth,
+                    height: frame.height
+                )
+            ]
+
         case .split4:
             return [
                 CGRect(
