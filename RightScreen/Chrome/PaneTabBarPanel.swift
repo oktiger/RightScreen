@@ -14,6 +14,190 @@ struct PaneTabPresentation: Equatable {
     }
 }
 
+/// Compact chrome control for tab actions (move / close).
+/// Soft rounded hover fill + stronger pressed fill, matching common browser /
+/// IDE tab affordances without changing the hit-target size.
+@MainActor
+private final class PaneTabChromeButton: NSControl {
+    enum Style {
+        case neutral
+        case destructive
+    }
+
+    private enum Metrics {
+        static let glyphSize: CGFloat = 16
+        static let cornerRadius: CGFloat = 5
+    }
+
+    private let style: Style
+    private let hoverBackground = NSView()
+    private let imageView = NSImageView()
+    private var trackingArea: NSTrackingArea?
+    private var isPointerInside = false
+    private var isPressed = false
+    private var isOnSelectedTab = false
+    private var idleTint = NSColor.white.withAlphaComponent(0.78)
+
+    init(
+        systemSymbolName: String,
+        accessibilityDescription: String,
+        pointSize: CGFloat,
+        style: Style
+    ) {
+        self.style = style
+        super.init(frame: .zero)
+
+        wantsLayer = true
+        focusRingType = .none
+        toolTip = accessibilityDescription
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(accessibilityDescription)
+
+        hoverBackground.wantsLayer = true
+        hoverBackground.layer?.cornerRadius = Metrics.cornerRadius
+        hoverBackground.layer?.masksToBounds = true
+        hoverBackground.isHidden = true
+
+        imageView.image = NSImage(
+            systemSymbolName: systemSymbolName,
+            accessibilityDescription: accessibilityDescription
+        )?.withSymbolConfiguration(.init(pointSize: pointSize, weight: .semibold))
+        imageView.imageScaling = .scaleProportionallyDown
+        imageView.contentTintColor = idleTint
+
+        addSubview(hoverBackground)
+        addSubview(imageView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func layout() {
+        super.layout()
+        let side = min(Metrics.glyphSize, min(bounds.width, bounds.height) - 2)
+        hoverBackground.frame = CGRect(
+            x: (bounds.width - side) / 2,
+            y: (bounds.height - side) / 2,
+            width: side,
+            height: side
+        )
+        hoverBackground.layer?.cornerRadius = min(Metrics.cornerRadius, side / 2)
+        imageView.frame = bounds
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isPointerInside = true
+        refreshAppearance()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isPointerInside = false
+        isPressed = false
+        refreshAppearance()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        isPressed = true
+        refreshAppearance()
+
+        var keepTracking = true
+        while keepTracking {
+            guard let next = window?.nextEvent(
+                matching: [.leftMouseUp, .leftMouseDragged]
+            ) else {
+                break
+            }
+            switch next.type {
+            case .leftMouseDragged:
+                let inside = bounds.contains(convert(next.locationInWindow, from: nil))
+                if isPressed != inside {
+                    isPressed = inside
+                    refreshAppearance()
+                }
+            case .leftMouseUp:
+                let inside = bounds.contains(convert(next.locationInWindow, from: nil))
+                isPressed = false
+                refreshAppearance()
+                if inside {
+                    sendAction(action, to: target)
+                }
+                keepTracking = false
+            default:
+                keepTracking = false
+            }
+        }
+    }
+
+    func updateChrome(isOnSelectedTab: Bool, idleTint: NSColor) {
+        self.isOnSelectedTab = isOnSelectedTab
+        self.idleTint = idleTint
+        refreshAppearance()
+    }
+
+    private func refreshAppearance() {
+        let showFill = isPointerInside || isPressed
+        hoverBackground.isHidden = !showFill
+
+        switch style {
+        case .neutral:
+            hoverBackground.layer?.backgroundColor = neutralFillColor.cgColor
+            imageView.contentTintColor = neutralIconColor
+        case .destructive:
+            hoverBackground.layer?.backgroundColor = destructiveFillColor.cgColor
+            imageView.contentTintColor = destructiveIconColor
+        }
+    }
+
+    private var neutralFillColor: NSColor {
+        if isOnSelectedTab {
+            return NSColor.black.withAlphaComponent(isPressed ? 0.16 : 0.10)
+        }
+        return NSColor.white.withAlphaComponent(isPressed ? 0.28 : 0.18)
+    }
+
+    private var neutralIconColor: NSColor {
+        guard isPointerInside || isPressed else { return idleTint }
+        if isOnSelectedTab {
+            return NSColor.black.withAlphaComponent(isPressed ? 0.78 : 0.68)
+        }
+        return NSColor.white.withAlphaComponent(isPressed ? 0.98 : 0.94)
+    }
+
+    private var destructiveFillColor: NSColor {
+        if isPointerInside || isPressed {
+            return NSColor.systemRed.withAlphaComponent(isPressed ? 0.92 : 0.82)
+        }
+        return .clear
+    }
+
+    private var destructiveIconColor: NSColor {
+        if isPointerInside || isPressed {
+            return .white
+        }
+        return idleTint
+    }
+}
+
 @MainActor
 private final class PaneTabItemView: NSView {
     private enum Metrics {
@@ -26,9 +210,9 @@ private final class PaneTabItemView: NSView {
     private let materialView = NSVisualEffectView()
     private let tintView = NSView()
     private let selectButton = NSButton()
-    private let closeButton = NSButton()
+    private let closeButton: PaneTabChromeButton
     private let moveButtonStack = NSStackView()
-    private var moveButtons: [NSButton] = []
+    private var moveButtons: [PaneTabChromeButton] = []
     private let moveDirections: [PaneMoveDirection]
     private let selectionHandler: () -> Void
     private let closeHandler: () -> Void
@@ -49,6 +233,12 @@ private final class PaneTabItemView: NSView {
         self.selectionHandler = selectionHandler
         self.closeHandler = closeHandler
         self.moveHandler = moveHandler
+        closeButton = PaneTabChromeButton(
+            systemSymbolName: "xmark",
+            accessibilityDescription: "关闭窗口",
+            pointSize: 9,
+            style: .destructive
+        )
         super.init(frame: .zero)
 
         wantsLayer = true
@@ -77,13 +267,6 @@ private final class PaneTabItemView: NSView {
         selectButton.target = self
         selectButton.action = #selector(selectTab)
 
-        closeButton.image = NSImage(
-            systemSymbolName: "xmark",
-            accessibilityDescription: "关闭窗口"
-        )?.withSymbolConfiguration(.init(pointSize: 9, weight: .semibold))
-        closeButton.toolTip = "关闭窗口"
-        closeButton.isBordered = false
-        closeButton.imagePosition = .imageOnly
         closeButton.target = self
         closeButton.action = #selector(closeWindow)
 
@@ -92,14 +275,12 @@ private final class PaneTabItemView: NSView {
         moveButtonStack.alignment = .centerY
         moveButtonStack.distribution = .fillEqually
         for direction in moveDirections {
-            let button = NSButton()
-            button.image = NSImage(
+            let button = PaneTabChromeButton(
                 systemSymbolName: direction.systemSymbolName,
-                accessibilityDescription: direction.tooltip
-            )?.withSymbolConfiguration(.init(pointSize: 10, weight: .semibold))
-            button.toolTip = direction.tooltip
-            button.isBordered = false
-            button.imagePosition = .imageOnly
+                accessibilityDescription: direction.tooltip,
+                pointSize: 10,
+                style: .neutral
+            )
             button.target = self
             button.action = #selector(moveButtonClicked(_:))
             button.tag = moveButtons.count
@@ -188,7 +369,7 @@ private final class PaneTabItemView: NSView {
         closeHandler()
     }
 
-    @objc private func moveButtonClicked(_ sender: NSButton) {
+    @objc private func moveButtonClicked(_ sender: PaneTabChromeButton) {
         guard moveDirections.indices.contains(sender.tag) else { return }
         moveHandler(moveDirections[sender.tag])
     }
@@ -210,9 +391,9 @@ private final class PaneTabItemView: NSView {
             : NSColor.white.withAlphaComponent(0.78)
 
         selectButton.contentTintColor = titleColor
-        closeButton.contentTintColor = chromeColor
+        closeButton.updateChrome(isOnSelectedTab: isSelected, idleTint: chromeColor)
         for button in moveButtons {
-            button.contentTintColor = chromeColor
+            button.updateChrome(isOnSelectedTab: isSelected, idleTint: chromeColor)
         }
 
         layer?.shadowColor = NSColor.black.cgColor
