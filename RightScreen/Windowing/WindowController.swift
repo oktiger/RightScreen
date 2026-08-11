@@ -82,6 +82,41 @@ final class WindowController {
         AXHelpers.string(kAXRoleAttribute as CFString, of: window.element) != nil
     }
 
+    /// 返回系统当前真正聚焦的受管窗口。
+    ///
+    /// 不能只比较前台 App 的 PID：同一个 App 可以同时拥有多个受管窗口，
+    /// 例如 ChatGPT 的不同项目窗口。这里必须继续比较 AXFocusedWindow 的
+    /// 窗口级身份，才能让 Tab 高亮跟随用户在系统中直接进行的窗口切换。
+    func focusedManagedWindow(in windows: [ManagedWindow]) -> ManagedWindow? {
+        guard
+            let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+            windows.contains(where: { $0.ownerPID == frontmostPID })
+        else {
+            return nil
+        }
+
+        let applicationElement = AXUIElementCreateApplication(frontmostPID)
+        let focusedElement = AXHelpers.attribute(
+            kAXFocusedWindowAttribute as CFString,
+            of: applicationElement
+        ) ?? AXHelpers.attribute(
+            kAXMainWindowAttribute as CFString,
+            of: applicationElement
+        )
+
+        guard
+            let focusedElement,
+            CFGetTypeID(focusedElement) == AXUIElementGetTypeID()
+        else {
+            return nil
+        }
+
+        let focusedWindowElement = focusedElement as! AXUIElement
+        return windows.first {
+            $0.ownerPID == frontmostPID && CFEqual($0.element, focusedWindowElement)
+        }
+    }
+
     private func accessibilityFrame(from appKitFrame: CGRect, mainScreen: NSScreen) -> CGRect {
         CGRect(
             x: appKitFrame.minX,

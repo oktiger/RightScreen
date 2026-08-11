@@ -310,6 +310,7 @@ final class LayoutCoordinator {
 
     private func refreshTabSession(_ session: LayoutSession) {
         removeClosedWindows(from: session)
+        synchronizeTabSelectionWithSystemFocus(in: session)
 
         let managedWindows = session.panes.flatMap(\.windows)
         let knownWindowIDs = Set(managedWindows.map(\.windowID))
@@ -335,6 +336,27 @@ final class LayoutCoordinator {
 
             pendingWindowSightings.removeValue(forKey: candidate.windowID)
             addNewWindow(candidate, to: session)
+        }
+    }
+
+    private func synchronizeTabSelectionWithSystemFocus(in session: LayoutSession) {
+        let managedWindows = session.panes.flatMap(\.windows)
+        guard let focusedWindow = windowController.focusedManagedWindow(in: managedWindows) else {
+            return
+        }
+
+        for paneIndex in session.panes.indices {
+            let pane = session.panes[paneIndex]
+            guard let focusedIndex = pane.windows.firstIndex(where: {
+                $0.refersToSameAccessibilityWindow(as: focusedWindow)
+            }) else {
+                continue
+            }
+            guard pane.selectedIndex != focusedIndex else { return }
+
+            session.panes[paneIndex].selectedIndex = focusedIndex
+            createOrUpdateTabBar(forPane: paneIndex, in: session)
+            return
         }
     }
 
