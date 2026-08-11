@@ -16,6 +16,7 @@ bundle_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$ap
 expected_bundle_identifier="com.rightscreen.RightScreen"
 signing_directory="$HOME/Library/Application Support/RightScreen/CodeSigning"
 requirement_file="$signing_directory/designated-requirement"
+signing_keychain=""
 
 if [[ "$bundle_identifier" != "$expected_bundle_identifier" ]]; then
     print -u2 "拒绝签名：Bundle ID 必须保持为 $expected_bundle_identifier，实际为 $bundle_identifier"
@@ -73,13 +74,6 @@ else
             -P RightScreenImport \
             -T /usr/bin/codesign \
             >/dev/null
-        security set-key-partition-list \
-            -S apple-tool:,apple:,codesign: \
-            -s \
-            -k "$keychain_password" \
-            "$signing_keychain" \
-            >/dev/null
-
         # 仅首次创建本地开发身份时，macOS 可能要求确认信任此证书。
         security add-trusted-cert \
             -r trustRoot \
@@ -88,7 +82,17 @@ else
             "$certificate_file" || true
     fi
 
+    # 每次签名前都修复专用钥匙串状态，兼容旧版脚本创建的钥匙串。
+    # partition list 明确允许 Apple 签名工具非交互访问私钥，
+    # 避免本地重建时反复弹出“codesign 想使用 RightScreen 钥匙串”。
     security unlock-keychain -p "$keychain_password" "$signing_keychain"
+    security set-keychain-settings -l -u -t 21600 "$signing_keychain"
+    security set-key-partition-list \
+        -S apple-tool:,apple:,codesign: \
+        -s \
+        -k "$keychain_password" \
+        "$signing_keychain" \
+        >/dev/null
 
     existing_keychains=("${(@f)$(security list-keychains -d user | sed -E 's/^[[:space:]]*"(.*)"$/\1/')}")
     if (( ${existing_keychains[(Ie)$signing_keychain]} == 0 )); then
@@ -111,12 +115,17 @@ if [[ "$signing_identity" == "-" ]]; then
     exit 1
 fi
 
-codesign \
-    --force \
-    --options runtime \
-    --sign "$signing_identity" \
-    --identifier "$bundle_identifier" \
-    "$app_path"
+codesign_arguments=(
+    --force
+    --options runtime
+    --sign "$signing_identity"
+    --identifier "$bundle_identifier"
+)
+if [[ -n "$signing_keychain" ]]; then
+    # 避免同名身份或其他钥匙串干扰本地签名。
+    codesign_arguments+=(--keychain "$signing_keychain")
+fi
+codesign "${codesign_arguments[@]}" "$app_path"
 
 codesign --verify --deep --strict --verbose=2 "$app_path"
 

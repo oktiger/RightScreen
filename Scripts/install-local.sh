@@ -35,8 +35,7 @@ mkdir -p "$install_app"
 rm -rf "$install_app/Contents"
 mv "$staging_app/Contents" "$install_app/Contents"
 
-# 最终安装位置再次验证，防止复制或升级步骤破坏签名。
-"$project_dir/Scripts/sign-app.sh" "$install_app"
+# 移动已签名 bundle 不会改变签名。此处只做验证，避免安装后再次访问私钥。
 codesign --verify --deep --strict --verbose=2 "$install_app"
 
 installed_bundle_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$install_app/Contents/Info.plist")"
