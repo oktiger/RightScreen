@@ -34,12 +34,23 @@ final class WindowIndexer {
     /// `.optionOnScreenOnly` 是公开 API 中限定当前活动 Space 的关键过滤条件。
     /// CG 提供当前 Space 的稳定前后顺序，AX 再通过 PID、标题和 frame 映射到可操作窗口。
     func currentSpaceWindows() -> [ManagedWindow] {
+        currentSpaceWindows(ownerPID: nil)
+    }
+
+    /// AX 窗口事件到达后仅映射对应进程，避免为一个新窗口重新读取所有 App 的 AX 窗口。
+    func currentSpaceWindows(ownerPID: pid_t) -> [ManagedWindow] {
+        currentSpaceWindows(ownerPID: Optional(ownerPID))
+    }
+
+    private func currentSpaceWindows(ownerPID: pid_t?) -> [ManagedWindow] {
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
         guard let rawWindowInfo = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
             return []
         }
 
-        let records = rawWindowInfo.compactMap(makeRecord)
+        let records = rawWindowInfo.compactMap(makeRecord).filter { record in
+            ownerPID == nil || record.ownerPID == ownerPID
+        }
         var axWindowsByPID: [pid_t: [AXUIElement]] = [:]
         var usedIndicesByPID: [pid_t: Set<Int>] = [:]
         var result: [ManagedWindow] = []

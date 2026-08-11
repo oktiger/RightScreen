@@ -2,13 +2,31 @@ import AppKit
 
 @MainActor
 final class LayoutCoordinator {
-    private static let requiredNewWindowSightings = 3
+    private static let fallbackReconciliationInterval: TimeInterval = 15
+    private static let eventRetryDelays: [Duration] = [
+        .zero,
+        .milliseconds(30),
+        .milliseconds(80),
+        .milliseconds(180),
+        .milliseconds(400)
+    ]
 
     private let windowIndexer = WindowIndexer()
     private let windowController = WindowController()
-    private var refreshTimer: Timer?
+    private var reconciliationTimer: Timer?
+    private var reconciliationTasks: [pid_t: Task<Void, Never>] = [:]
     private var closingWindowIDs = Set<CGWindowID>()
-    private var pendingWindowSightings: [CGWindowID: Int] = [:]
+    private lazy var windowObservationService = WindowObservationService(
+        onWindowCreated: { [weak self] pid in
+            self?.scheduleWindowReconciliation(for: pid)
+        },
+        onWindowStateChanged: { [weak self] in
+            self?.refreshManagedWindowState()
+        },
+        onFocusChanged: { [weak self] in
+            self?.refreshFocusedTab()
+        }
+    )
     private(set) var session: LayoutSession?
     private(set) var bentoSession: BentoSession?
 
@@ -37,11 +55,10 @@ final class LayoutCoordinator {
         )
         session = newSession
         closingWindowIDs.removeAll()
-        pendingWindowSightings.removeAll()
 
         applyInitialLayout(newSession)
         createTabBars(for: newSession)
-        startRefreshingWindows()
+        startObservingWindows()
     }
 
     func startBento() {
@@ -55,18 +72,21 @@ final class LayoutCoordinator {
         let newSession = BentoSession(screen: screen, windows: windows, tree: tree)
         bentoSession = newSession
         closingWindowIDs.removeAll()
-        pendingWindowSightings.removeAll()
 
         applyBentoFrames(newSession)
         installBentoChrome(for: newSession)
-        startRefreshingWindows()
+        startObservingWindows()
     }
 
     func exitLayout() {
-        refreshTimer?.invalidate()
-        refreshTimer = nil
+        windowObservationService.stop()
+        reconciliationTimer?.invalidate()
+        reconciliationTimer = nil
+        for task in reconciliationTasks.values {
+            task.cancel()
+        }
+        reconciliationTasks.removeAll()
         closingWindowIDs.removeAll()
-        pendingWindowSightings.removeAll()
 
         if let session {
             self.session = nil
@@ -165,7 +185,7 @@ final class LayoutCoordinator {
         session.dividerController?.update(dividers: session.dividerLayouts())
     }
 
-    private func refreshBentoSession(_ session: BentoSession) {
+    private func refreshBentoSession(_ session: BentoSession, discoverNewWindows: Bool) {
         guard !session.isDraggingDivider else { return }
 
         let previousValues = BentoEngine.leafValues(session.tree)
@@ -182,26 +202,13 @@ final class LayoutCoordinator {
             }
         }
 
-        let knownIDs = Set(liveWindows.map(\.windowID))
-        let candidates = windowIndexer.currentSpaceWindows().filter { candidate in
-            !knownIDs.contains(candidate.windowID)
-                && !closingWindowIDs.contains(candidate.windowID)
-                && !liveWindows.contains(where: { $0.refersToSameAccessibilityWindow(as: candidate) })
-        }
-
-        let visibleCandidateIDs = Set(candidates.map(\.windowID))
-        pendingWindowSightings = pendingWindowSightings.filter {
-            visibleCandidateIDs.contains($0.key)
-        }
-
-        for candidate in candidates {
-            let sightings = pendingWindowSightings[candidate.windowID, default: 0] + 1
-            guard sightings >= Self.requiredNewWindowSightings else {
-                pendingWindowSightings[candidate.windowID] = sightings
-                continue
+        if discoverNewWindows {
+            for candidate in unmanagedWindows(
+                among: windowIndexer.currentSpaceWindows(),
+                comparedWith: liveWindows
+            ) {
+                addNewWindowToBento(candidate, session: session)
             }
-            pendingWindowSightings.removeValue(forKey: candidate.windowID)
-            addNewWindowToBento(candidate, session: session)
         }
     }
 
@@ -289,53 +296,110 @@ final class LayoutCoordinator {
         PaneTabPresentation(title: window.tabTitle, ownerPID: window.ownerPID)
     }
 
-    private func startRefreshingWindows() {
-        refreshTimer?.invalidate()
-        refreshTimer = Timer.scheduledTimer(
-            timeInterval: 0.75,
+    private func startObservingWindows() {
+        windowObservationService.start()
+        // 覆盖初始窗口枚举与批量安装 AXObserver 之间的短暂竞态。
+        reconcileAllWindows()
+        reconciliationTimer?.invalidate()
+        reconciliationTimer = Timer.scheduledTimer(
+            timeInterval: Self.fallbackReconciliationInterval,
             target: self,
-            selector: #selector(refreshManagedWindows),
+            selector: #selector(reconcileAllWindows),
             userInfo: nil,
             repeats: true
         )
     }
 
-    @objc private func refreshManagedWindows() {
+    /// AX 通知偶尔会被个别 App 漏发；低频全量校准只作为容错，不再承担实时发现。
+    @objc private func reconcileAllWindows() {
         if let session {
-            refreshTabSession(session)
+            refreshTabSession(session, discoverNewWindows: true)
         } else if let bentoSession {
-            refreshBentoSession(bentoSession)
+            refreshBentoSession(bentoSession, discoverNewWindows: true)
         }
     }
 
-    private func refreshTabSession(_ session: LayoutSession) {
+    private func refreshManagedWindowState() {
+        if let session {
+            refreshTabSession(session, discoverNewWindows: false)
+        } else if let bentoSession {
+            refreshBentoSession(bentoSession, discoverNewWindows: false)
+        }
+    }
+
+    private func refreshFocusedTab() {
+        guard let session else { return }
+        synchronizeTabSelectionWithSystemFocus(in: session)
+    }
+
+    private func refreshTabSession(_ session: LayoutSession, discoverNewWindows: Bool) {
         removeClosedWindows(from: session)
         synchronizeTabSelectionWithSystemFocus(in: session)
+        guard discoverNewWindows else { return }
 
         let managedWindows = session.panes.flatMap(\.windows)
+        for candidate in unmanagedWindows(
+            among: windowIndexer.currentSpaceWindows(),
+            comparedWith: managedWindows
+        ) {
+            addNewWindow(candidate, to: session)
+        }
+    }
+
+    private func scheduleWindowReconciliation(for pid: pid_t) {
+        reconciliationTasks[pid]?.cancel()
+        reconciliationTasks[pid] = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            for delay in Self.eventRetryDelays {
+                if delay != .zero {
+                    try? await Task.sleep(for: delay)
+                }
+                guard !Task.isCancelled, self.hasActiveLayout else { return }
+                if self.reconcileNewWindows(ownerPID: pid) > 0 {
+                    break
+                }
+            }
+            self.reconciliationTasks[pid] = nil
+        }
+    }
+
+    @discardableResult
+    private func reconcileNewWindows(ownerPID: pid_t) -> Int {
+        let candidates = windowIndexer.currentSpaceWindows(ownerPID: ownerPID)
+
+        if let session {
+            let managedWindows = session.panes.flatMap(\.windows)
+            let newWindows = unmanagedWindows(among: candidates, comparedWith: managedWindows)
+            for window in newWindows {
+                addNewWindow(window, to: session)
+            }
+            return newWindows.count
+        }
+
+        if let bentoSession {
+            let managedWindows = BentoEngine.leafValues(bentoSession.tree)
+            let newWindows = unmanagedWindows(among: candidates, comparedWith: managedWindows)
+            for window in newWindows {
+                addNewWindowToBento(window, session: bentoSession)
+            }
+            return newWindows.count
+        }
+
+        return 0
+    }
+
+    private func unmanagedWindows(
+        among candidates: [ManagedWindow],
+        comparedWith managedWindows: [ManagedWindow]
+    ) -> [ManagedWindow] {
         let knownWindowIDs = Set(managedWindows.map(\.windowID))
-        let candidates = windowIndexer.currentSpaceWindows().filter { candidate in
+        return candidates.filter { candidate in
             !knownWindowIDs.contains(candidate.windowID)
                 && !closingWindowIDs.contains(candidate.windowID)
                 && !managedWindows.contains(where: {
                     $0.refersToSameAccessibilityWindow(as: candidate)
                 })
-        }
-
-        let visibleCandidateIDs = Set(candidates.map(\.windowID))
-        pendingWindowSightings = pendingWindowSightings.filter {
-            visibleCandidateIDs.contains($0.key)
-        }
-
-        for candidate in candidates {
-            let sightings = pendingWindowSightings[candidate.windowID, default: 0] + 1
-            guard sightings >= Self.requiredNewWindowSightings else {
-                pendingWindowSightings[candidate.windowID] = sightings
-                continue
-            }
-
-            pendingWindowSightings.removeValue(forKey: candidate.windowID)
-            addNewWindow(candidate, to: session)
         }
     }
 
