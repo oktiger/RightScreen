@@ -3,6 +3,7 @@ import AppKit
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
     private let coordinator: LayoutCoordinator
+    private let onOpenHotKeySettings: () -> Void
     private let statusItem: NSStatusItem
 
     private lazy var layoutItems: [(kind: LayoutKind, item: NSMenuItem)] = LayoutKind.allCases.map { kind in
@@ -31,6 +32,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         action: #selector(exitLayout),
         keyEquivalent: ""
     )
+    private lazy var hotKeySettingsItem = menuItem(
+        title: "快捷键设置…",
+        action: #selector(openHotKeySettings),
+        keyEquivalent: ""
+    )
     private lazy var permissionItem = menuItem(
         title: "打开辅助功能权限设置…",
         action: #selector(openAccessibilitySettings),
@@ -42,8 +48,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         keyEquivalent: ""
     )
 
-    init(coordinator: LayoutCoordinator) {
+    init(coordinator: LayoutCoordinator, onOpenHotKeySettings: @escaping () -> Void) {
         self.coordinator = coordinator
+        self.onOpenHotKeySettings = onOpenHotKeySettings
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
         configureStatusItem()
@@ -72,6 +79,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
         menu.addItem(exitLayoutItem)
+        menu.addItem(hotKeySettingsItem)
         menu.addItem(.separator())
         menu.addItem(permissionItem)
         menu.addItem(.separator())
@@ -113,6 +121,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func exitLayout() {
         coordinator.exitLayout()
+    }
+
+    @objc private func openHotKeySettings() {
+        onOpenHotKeySettings()
     }
 
     @objc private func openAccessibilitySettings() {

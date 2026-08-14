@@ -38,6 +38,22 @@ final class LayoutCoordinator {
         bentoSession != nil
     }
 
+    func moveFocusedTab(_ direction: PaneMoveDirection) {
+        guard let session else { return }
+        let windows = session.panes.flatMap(\.windows)
+        guard let focused = windowController.focusedManagedWindow(in: windows) else { return }
+
+        for (paneIndex, pane) in session.panes.enumerated() {
+            guard let tabIndex = pane.windows.firstIndex(where: {
+                $0.refersToSameAccessibilityWindow(as: focused)
+            }) else {
+                continue
+            }
+            moveTab(tabIndex, inPane: paneIndex, direction: direction)
+            return
+        }
+    }
+
     func startLayout(_ kind: LayoutKind) {
         guard ensureAccessibility() else { return }
         guard let screen = primaryScreen() else { return }

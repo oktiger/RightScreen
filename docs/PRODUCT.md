@@ -19,6 +19,7 @@ macOS 菜单栏窗口管理工具。提供两种互斥布局模式：
    - **Tab Mode**：全屏、左右二分、上下二分、1+2、2+1、四等分
    - **Bento Mode**：Bento（唯一项）
    - 退出当前布局（还原窗口位置，尽力而为）
+   - 快捷键设置（Tab 换格箭头、全屏菜单）
    - 打开辅助功能（Accessibility）权限引导
    - 退出应用
 2. **Tab Mode** 进入布局时：
@@ -26,13 +27,15 @@ macOS 菜单栏窗口管理工具。提供两种互斥布局模式：
    - 按策略均分到各窗格（例：6 窗 + 二分 → 左 3 / 右 3）
    - 每格只显示「当前 Tab」对应窗口；同格其他窗口不可见
    - 每格上方显示原生 Tab 栏，点击可切换
+   - 可为 Tab 栏换格箭头配置全局快捷键（左 / 右 / 上 / 下）；语义与点击对应箭头完全相同，仅在 Tab Mode 中生效
+   - 可为菜单「全屏」配置全局快捷键，语义与点该菜单项相同
 3. **Bento Mode** 进入布局时：
    - 枚举当前 Space 可管理窗口，按 BSP 自动平铺（1 整屏 / 2 左右 / 3 左整高+右上下 / 4+ 继续二分）
    - 无 Tab；每一窗口独占一格并同时可见
    - 格间显示可拖分隔条（竖/横）；拖动时显示玻璃预览（App Icon + 名称 + 宽×高），松手一次提交 frame
    - 默认格间距 8pt
 4. Tab 与 Bento **互斥**：启动其一前退出另一模式。
-5. 仅申请 **Accessibility** 权限；不禁用 SIP；不要求 Input Monitoring / Screen Recording（除非后续明确需要）。
+5. 仅申请 **Accessibility** 权限；不禁用 SIP；不要求 Input Monitoring / Screen Recording（除非后续明确需要）。全局快捷键用系统热键注册，不监听全部按键。
 6. 最低系统：macOS 14 Sonoma+；支持 Apple Silicon（Intel 可选）。
 
 ### 1.2 明确不做（当前阶段禁止实现）
@@ -48,7 +51,7 @@ macOS 菜单栏窗口管理工具。提供两种互斥布局模式：
 
 ### 1.3 可后续做（P1/P2，未经要求不要提前做）
 
-- 可配置快捷键、排除名单、多显示器策略、Bento Gap
+- Bento / 其它布局菜单 / 退出布局的可配置快捷键、排除名单、多显示器策略、Bento Gap
 - Bento：拖窗交换、边插入、Fill、Retile
 - 新窗口自动并入当前布局（Tab / Bento 已有基础可增强）
 - 命名布局保存/恢复、拖拽换格、Tab 重排
@@ -109,6 +112,7 @@ macOS 菜单栏窗口管理工具。提供两种互斥布局模式：
 - 点击 Tab：目标窗口 `raise` 并置于该格 frame；同格其他窗口隐藏（策略见架构说明）。
 - Tab 标题：默认优先 App 名，空则用窗口标题；Chrome 系列显示“App 名：标签/窗口标题”。
 - Tab 栏不得严重抢焦点：使用非 activating 的 `NSPanel` 一类方案，再对目标窗做 AX raise。
+- 换格快捷键：对当前聚焦 Tab 执行该方向的箭头；该格没有对应箭头时忽略。未进入 Tab Mode 时四向快捷键不生效。
 
 ### 2.7 退出布局
 
@@ -149,6 +153,9 @@ BentoPreviewPanel        Bento：拖动时 Icon 玻璃预览
 LayoutSession            Tab 会话
 BentoSession             Bento 会话
 LayoutCoordinator        两种模式的启动 / 刷新 / 退出
+HotKeyCenter             全局快捷键注册（Carbon）
+HotKeySettingsStore      快捷键持久化
+HotKeySettings           快捷键设置窗（SwiftUI）
 ```
 
 ### 4.1 隐藏同格非活动窗口的策略（Tab Mode，按优先级尝试）
@@ -172,6 +179,7 @@ RightScreen/
 ├── Layout/        # LayoutKind, LayoutEngine, BentoEngine
 ├── Chrome/        # PaneTabBarPanel, BentoDivider, BentoPreview
 ├── Store/         # LayoutSession, BentoSession
+├── HotKeys/       # HotKeyCenter, KeyChord, 设置存储
 └── Resources/     # Info.plist, Assets
 ```
 
@@ -197,4 +205,4 @@ RightScreen/
 - BetterStage：https://betterstage.app/ （Tabbed Layout / Bento Box 行为参考）
 - BetterStage Bento 文档：https://betterstage.app/docs/bento-box
 - AXSwift / Swindler：Accessibility 封装参考
-- 竞品边界：Rectangle（吸附）≠ 本产品；本产品 = Tab 窗格切换 + Bento 全可见平铺
+- 竞品边界：Rectangle（吸附）≠ 本产品；本产品 = Tab 窗格切换 + Bento 全可见平铺。Tab 换格快捷键只复用 Tab 栏箭头，不是独立吸附器。
