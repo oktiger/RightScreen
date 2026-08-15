@@ -14,6 +14,20 @@ struct PaneMoveTests {
         #expect(PaneMove.destinationPaneIndex(from: 1, direction: .right, kind: .split2) == nil)
     }
 
+    @Test func split3OnlyOffersHorizontalNeighbors() {
+        #expect(PaneMove.availableDirections(from: 0, kind: .split3) == [.right])
+        #expect(PaneMove.availableDirections(from: 1, kind: .split3) == [.left, .right])
+        #expect(PaneMove.availableDirections(from: 2, kind: .split3) == [.left])
+        #expect(PaneMove.destinationPaneIndex(from: 0, direction: .right, kind: .split3) == 1)
+        #expect(PaneMove.destinationPaneIndex(from: 1, direction: .left, kind: .split3) == 0)
+        #expect(PaneMove.destinationPaneIndex(from: 1, direction: .right, kind: .split3) == 2)
+        #expect(PaneMove.destinationPaneIndex(from: 2, direction: .left, kind: .split3) == 1)
+        #expect(PaneMove.destinationPaneIndex(from: 0, direction: .left, kind: .split3) == nil)
+        #expect(PaneMove.destinationPaneIndex(from: 0, direction: .up, kind: .split3) == nil)
+        #expect(PaneMove.destinationPaneIndex(from: 2, direction: .right, kind: .split3) == nil)
+        #expect(PaneMove.destinationPaneIndex(from: 1, direction: .down, kind: .split3) == nil)
+    }
+
     @Test func topBottomOnlyOffersVerticalNeighbors() {
         #expect(PaneMove.availableDirections(from: 0, kind: .topBottom) == [.down])
         #expect(PaneMove.availableDirections(from: 1, kind: .topBottom) == [.up])

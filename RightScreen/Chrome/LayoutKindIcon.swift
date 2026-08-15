@@ -83,6 +83,17 @@ enum LayoutKindIcon {
                 CGRect(x: rightX, y: frame.minY, width: rightWidth, height: frame.height)
             ]
 
+        case .split3:
+            let columnWidth = floor((frame.width - gap * 2) / 3)
+            let middleX = frame.minX + columnWidth + gap
+            let trailingX = middleX + columnWidth + gap
+            let trailingWidth = frame.maxX - trailingX
+            return [
+                CGRect(x: frame.minX, y: frame.minY, width: columnWidth, height: frame.height),
+                CGRect(x: middleX, y: frame.minY, width: columnWidth, height: frame.height),
+                CGRect(x: trailingX, y: frame.minY, width: trailingWidth, height: frame.height)
+            ]
+
         case .topBottom:
             return [
                 CGRect(x: frame.minX, y: topY, width: frame.width, height: topHeight),

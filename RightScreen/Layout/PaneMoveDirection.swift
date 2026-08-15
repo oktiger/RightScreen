@@ -49,6 +49,16 @@ enum PaneMove {
             default: return nil
             }
 
+        case .split3:
+            // 0 左，1 中，2 右；仅水平相邻，中间格可左右移动。
+            switch (paneIndex, direction) {
+            case (0, .right): return 1
+            case (1, .left): return 0
+            case (1, .right): return 2
+            case (2, .left): return 1
+            default: return nil
+            }
+
         case .topBottom:
             // 0 上，1 下
             switch (paneIndex, direction) {

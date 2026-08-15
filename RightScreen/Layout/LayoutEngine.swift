@@ -62,6 +62,27 @@ enum LayoutEngine {
                 CGRect(x: frame.minX + leftWidth, y: frame.minY, width: rightWidth, height: frame.height)
             ]
 
+        case .split3:
+            // 连续均分宽度，余数像素给最右格，与 split2 把余数给右侧一致。
+            let columnWidth = floor(frame.width / 3)
+            let middleWidth = columnWidth
+            let trailingWidth = frame.width - columnWidth - middleWidth
+            return [
+                CGRect(x: frame.minX, y: frame.minY, width: columnWidth, height: frame.height),
+                CGRect(
+                    x: frame.minX + columnWidth,
+                    y: frame.minY,
+                    width: middleWidth,
+                    height: frame.height
+                ),
+                CGRect(
+                    x: frame.minX + columnWidth + middleWidth,
+                    y: frame.minY,
+                    width: trailingWidth,
+                    height: frame.height
+                )
+            ]
+
         case .topBottom:
             return [
                 CGRect(

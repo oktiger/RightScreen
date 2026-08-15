@@ -28,6 +28,12 @@ struct LayoutEngineTests {
         #expect(panes.flatMap { $0 } == Array(0..<5))
     }
 
+    @Test func split3AssignsThreeColumnsWithRemainderOnLeft() {
+        let panes = LayoutEngine.assign(Array(0..<5), paneCount: LayoutKind.split3.paneCount)
+        #expect(panes.map(\.count) == [2, 2, 1])
+        #expect(panes.flatMap { $0 } == Array(0..<5))
+    }
+
     @Test func fullScreenGeometryIsSinglePane() {
         let visibleFrame = CGRect(x: 0, y: 50, width: 1200, height: 800)
         let panes = LayoutEngine.geometries(for: .fullScreen, in: visibleFrame)
@@ -47,6 +53,24 @@ struct LayoutEngineTests {
         #expect(panes[0].tabBarFrame == CGRect(x: 0, y: 818, width: 600, height: 32))
         #expect(panes[0].windowFrame == CGRect(x: 0, y: 50, width: 600, height: 768))
         #expect(panes[1].paneFrame.minX == panes[0].paneFrame.maxX)
+    }
+
+    @Test func split3GeometryDividesLeftToRight() {
+        let panes = LayoutEngine.geometries(
+            for: .split3,
+            in: CGRect(x: 10, y: 20, width: 1000, height: 800)
+        )
+
+        #expect(panes.map(\.paneFrame) == [
+            CGRect(x: 10, y: 20, width: 333, height: 800),
+            CGRect(x: 343, y: 20, width: 333, height: 800),
+            CGRect(x: 676, y: 20, width: 334, height: 800)
+        ])
+        #expect(panes[0].paneFrame.maxX == panes[1].paneFrame.minX)
+        #expect(panes[1].paneFrame.maxX == panes[2].paneFrame.minX)
+        #expect(panes[2].paneFrame.maxX == 1010)
+        #expect(panes[0].tabBarFrame.height == LayoutEngine.tabBarHeight)
+        #expect(panes[0].windowFrame.height == 800 - LayoutEngine.tabBarHeight)
     }
 
     @Test func topBottomGeometryStacksVertically() {
