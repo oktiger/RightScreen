@@ -19,7 +19,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private lazy var bentoItem: NSMenuItem = {
         let item = menuItem(
-            title: "Bento",
+            title: "网格",
             action: #selector(startBento),
             keyEquivalent: ""
         )
@@ -74,7 +74,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
-        menu.addItem(.sectionHeader(title: "Bento Mode"))
+        menu.addItem(.sectionHeader(title: "Grid Mode"))
         menu.addItem(bentoItem)
 
         menu.addItem(.separator())

@@ -21,7 +21,7 @@ enum LayoutKindIcon {
         return image
     }
 
-    /// Bento Mode 菜单图标：不规则四格示意（交错横线）。
+    /// Grid Mode 菜单图标：不规则四格示意（交错横线）。
     static func bentoImage() -> NSImage {
         let size = canvasSize
         let image = NSImage(size: size, flipped: false) { rect in
