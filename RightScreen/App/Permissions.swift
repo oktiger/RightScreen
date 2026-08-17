@@ -89,7 +89,7 @@ enum Permissions {
 
                 请退出应用后执行：
                 Scripts/run-local.sh
-                或菜单“生成并升级 app”重新安装到 /Applications/RightScreen.app。
+                将应用重新安装到 /Applications/RightScreen.app。
 
                 然后在“系统设置 → 隐私与安全性 → 辅助功能”中删除旧的 RightScreen 条目，再重新勾选一次即可长期有效。
                 """

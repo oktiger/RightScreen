@@ -42,11 +42,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         action: #selector(openAccessibilitySettings),
         keyEquivalent: ""
     )
-    private lazy var generateAppItem = menuItem(
-        title: "生成并升级 app",
-        action: #selector(generateApp),
-        keyEquivalent: ""
-    )
 
     init(coordinator: LayoutCoordinator, onOpenHotKeySettings: @escaping () -> Void) {
         self.coordinator = coordinator
@@ -82,8 +77,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(hotKeySettingsItem)
         menu.addItem(.separator())
         menu.addItem(permissionItem)
-        menu.addItem(.separator())
-        menu.addItem(generateAppItem)
         menu.addItem(.separator())
         menu.addItem(menuItem(title: "退出 RightScreen", action: #selector(quit), keyEquivalent: "q"))
         statusItem.menu = menu
@@ -149,11 +142,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         alert.informativeText = help.message
         alert.addButton(withTitle: "好")
         alert.runModal()
-    }
-
-    @objc private func generateApp() {
-        coordinator.exitLayout()
-        BuildAndRestartService.start()
     }
 
     @objc private func quit() {
