@@ -2,11 +2,21 @@ import AppKit
 import Foundation
 
 enum BuildAndRestartService {
-    /// The local development app is built from the repository that contains this source file.
-    private static let repositoryRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent() // App
-        .deletingLastPathComponent() // RightScreen
-        // SwiftPM repository root
+    /// Walk up from this source file to the SwiftPM repository root.
+    private static let repositoryRoot: URL = {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<8 {
+            url.deleteLastPathComponent()
+            let scriptPath = url.appendingPathComponent("Scripts/install-local.sh").path
+            if FileManager.default.isExecutableFile(atPath: scriptPath) {
+                return url
+            }
+        }
+        return URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // BuildAndRestartService.swift
+            .deletingLastPathComponent() // App
+            .deletingLastPathComponent() // RightScreen
+    }()
 
     @MainActor
     static func start() {
