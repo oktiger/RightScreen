@@ -37,6 +37,15 @@ final class HotKeyRecorder {
         finish(save: .cancel)
     }
 
+    func clear(_ action: HotKeyAction) {
+        if recordingAction == action {
+            finish(save: .clear)
+            return
+        }
+        conflictMessage = nil
+        _ = store.setChord(nil, for: action)
+    }
+
     private enum RecordingResult {
         case chord(KeyChord)
         case clear
@@ -104,7 +113,8 @@ struct HotKeySettingsView: View {
                             chord: store.chord(for: action),
                             isRecording: recorder.recordingAction == action,
                             onRecord: { recorder.begin(action) },
-                            onCancel: { recorder.cancel() }
+                            onCancel: { recorder.cancel() },
+                            onClear: { recorder.clear(action) }
                         )
                     }
 
@@ -136,6 +146,7 @@ private struct HotKeyBindingRow: View {
     let isRecording: Bool
     let onRecord: () -> Void
     let onCancel: () -> Void
+    let onClear: () -> Void
 
     var body: some View {
         HStack {
@@ -147,7 +158,17 @@ private struct HotKeyBindingRow: View {
                 .foregroundStyle(isRecording ? Color.accentColor : Color.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button(isRecording ? "取消" : "录制") {
+            if chord != nil, !isRecording {
+                Button(action: onClear) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("移除快捷键")
+                .accessibilityLabel("移除快捷键")
+            }
+
+            Button(isRecording ? "取消" : "设置") {
                 if isRecording {
                     onCancel()
                 } else {
