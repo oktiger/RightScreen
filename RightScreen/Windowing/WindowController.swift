@@ -112,9 +112,24 @@ final class WindowController {
         }
 
         let focusedWindowElement = focusedElement as! AXUIElement
-        return windows.first {
-            $0.ownerPID == frontmostPID && CFEqual($0.element, focusedWindowElement)
+        let candidates = windows.filter { $0.ownerPID == frontmostPID }
+        if let exact = candidates.first(where: { CFEqual($0.element, focusedWindowElement) }) {
+            return exact
         }
+
+        // 部分 App 每次读取 AXFocusedWindow 都会给出新的 AXUIElement，CFEqual 会失败。
+        // 用当前 AX frame 对齐同一进程里的受管窗口。
+        if let focusedFrame = AXHelpers.frame(of: focusedWindowElement) {
+            let scored = candidates.compactMap { window -> (ManagedWindow, CGFloat)? in
+                guard let frame = AXHelpers.frame(of: window.element) else { return nil }
+                return (window, WindowIndexer.geometryDelta(frame, focusedFrame))
+            }
+            if let best = scored.min(by: { $0.1 < $1.1 }), best.1 <= 48 {
+                return best.0
+            }
+        }
+
+        return candidates.count == 1 ? candidates[0] : nil
     }
 
     private func accessibilityFrame(from appKitFrame: CGRect, mainScreen: NSScreen) -> CGRect {

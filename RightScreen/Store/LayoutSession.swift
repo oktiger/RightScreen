@@ -14,6 +14,7 @@ final class LayoutSession {
     var originalFrames: [CGWindowID: CGRect]
     var panes: [PaneState]
     var panels: [PaneTabBarPanel?]
+    var lastFocusedPaneIndex: Int = 0
 
     init(
         kind: LayoutKind,

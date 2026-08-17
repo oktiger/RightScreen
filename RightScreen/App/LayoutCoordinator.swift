@@ -40,18 +40,17 @@ final class LayoutCoordinator {
 
     func moveFocusedTab(_ direction: PaneMoveDirection) {
         guard let session else { return }
-        let windows = session.panes.flatMap(\.windows)
-        guard let focused = windowController.focusedManagedWindow(in: windows) else { return }
-
-        for (paneIndex, pane) in session.panes.enumerated() {
-            guard let tabIndex = pane.windows.firstIndex(where: {
-                $0.refersToSameAccessibilityWindow(as: focused)
-            }) else {
-                continue
-            }
-            moveTab(tabIndex, inPane: paneIndex, direction: direction)
+        let focused = windowController.focusedManagedWindow(in: session.panes.flatMap(\.windows))
+        guard let target = TabFocus.moveTarget(
+            panes: session.panes,
+            focusedWindow: focused,
+            lastFocusedPaneIndex: session.lastFocusedPaneIndex
+        ) else {
             return
         }
+
+        session.lastFocusedPaneIndex = target.paneIndex
+        moveTab(target.tabIndex, inPane: target.paneIndex, direction: direction)
     }
 
     func startLayout(_ kind: LayoutKind) {
@@ -248,7 +247,7 @@ final class LayoutCoordinator {
     // MARK: - Tab layout (existing)
 
     private func applyInitialLayout(_ session: LayoutSession) {
-        for pane in session.panes where !pane.windows.isEmpty {
+        for (paneIndex, pane) in session.panes.enumerated() where !pane.windows.isEmpty {
             for window in pane.windows {
                 windowController.setAppKitFrame(
                     pane.geometry.windowFrame,
@@ -260,6 +259,7 @@ final class LayoutCoordinator {
             if pane.windows.indices.contains(pane.selectedIndex) {
                 let selectedWindow = pane.windows[pane.selectedIndex]
                 windowController.raise(selectedWindow)
+                session.lastFocusedPaneIndex = paneIndex
             }
         }
     }
@@ -432,6 +432,7 @@ final class LayoutCoordinator {
             }) else {
                 continue
             }
+            session.lastFocusedPaneIndex = paneIndex
             guard pane.selectedIndex != focusedIndex else { return }
 
             session.panes[paneIndex].selectedIndex = focusedIndex
@@ -461,6 +462,7 @@ final class LayoutCoordinator {
 
         windowController.setAppKitFrame(pane.geometry.windowFrame, on: session.screen, for: window)
         windowController.raise(window)
+        session.lastFocusedPaneIndex = paneIndex
         createOrUpdateTabBar(forPane: paneIndex, in: session)
     }
 
@@ -515,6 +517,7 @@ final class LayoutCoordinator {
             return
         }
         session.panes[paneIndex].selectedIndex = selectedIndex
+        session.lastFocusedPaneIndex = paneIndex
         createOrUpdateTabBar(forPane: paneIndex, in: session)
     }
 
@@ -618,6 +621,7 @@ final class LayoutCoordinator {
         }
 
         windowController.raise(window)
+        session.lastFocusedPaneIndex = targetPaneIndex
         createOrUpdateTabBar(forPane: sourcePaneIndex, in: session)
         createOrUpdateTabBar(forPane: targetPaneIndex, in: session)
     }
