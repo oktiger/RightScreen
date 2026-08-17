@@ -103,7 +103,7 @@ struct HotKeySettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             ForEach(HotKeySettingsSection.allCases, id: \.self) { section in
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 12) {
                     Text(section.title)
                         .font(.headline)
 
@@ -177,5 +177,6 @@ private struct HotKeyBindingRow: View {
             }
             .frame(width: 56)
         }
+        .padding(.vertical, 4)
     }
 }
