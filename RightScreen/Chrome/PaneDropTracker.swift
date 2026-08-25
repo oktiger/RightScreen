@@ -13,7 +13,8 @@ final class PaneDropTracker {
     private var originPaneIndex: Int?
     private var highlightedPaneIndex: Int?
 
-    var onDropInPane: ((Int) -> Void)?
+    var onDropBetweenPanes: ((PaneDropDestination) -> Void)?
+    var isTrackingMouseDrag: Bool { isDragging }
 
     func start(paneFrames: [CGRect]) {
         self.paneFrames = paneFrames
@@ -38,7 +39,7 @@ final class PaneDropTracker {
         timer = nil
         resetDragState()
         overlay.hideOverlay()
-        onDropInPane = nil
+        onDropBetweenPanes = nil
     }
 
     func updatePaneFrames(_ frames: [CGRect]) {
@@ -66,12 +67,13 @@ final class PaneDropTracker {
                 return
             }
 
-            let highlight = PaneDropHighlight.targetPaneIndex(
+            let destination = PaneDropHighlight.destination(
                 originPaneIndex: originPaneIndex,
                 cursor: location,
                 originPoint: originPoint,
                 paneFrames: paneFrames
             )
+            let highlight = destination?.targetPaneIndex
             if highlight != highlightedPaneIndex {
                 highlightedPaneIndex = highlight
                 if let highlight, paneFrames.indices.contains(highlight) {
@@ -84,27 +86,37 @@ final class PaneDropTracker {
         }
 
         if isDragging {
-            let target = highlightedPaneIndex
+            let destination = PaneDropHighlight.destination(
+                originPaneIndex: originPaneIndex,
+                cursor: location,
+                originPoint: originPoint,
+                paneFrames: paneFrames
+            )
             resetDragState()
             overlay.hideOverlay()
-            if let target {
-                onDropInPane?(target)
+            if let destination {
+                onDropBetweenPanes?(destination)
             }
         }
     }
+}
+
+struct PaneDropDestination: Equatable {
+    let sourcePaneIndex: Int
+    let targetPaneIndex: Int
 }
 
 enum PaneDropHighlight {
     static let dragSlop: CGFloat = 8
 
     /// 从一格拖到另一格且超过拖动阈值时，返回当前光标所在格。
-    static func targetPaneIndex(
+    static func destination(
         originPaneIndex: Int?,
         cursor: CGPoint,
         originPoint: CGPoint?,
         paneFrames: [CGRect],
         slop: CGFloat = dragSlop
-    ) -> Int? {
+    ) -> PaneDropDestination? {
         if let originPoint {
             let dx = cursor.x - originPoint.x
             let dy = cursor.y - originPoint.y
@@ -114,6 +126,9 @@ enum PaneDropHighlight {
             return nil
         }
         guard let originPaneIndex, current != originPaneIndex else { return nil }
-        return current
+        return PaneDropDestination(
+            sourcePaneIndex: originPaneIndex,
+            targetPaneIndex: current
+        )
     }
 }

@@ -2,6 +2,11 @@ import AppKit
 
 @MainActor
 final class LayoutCoordinator {
+    private struct PendingPaneDrop: Equatable {
+        let id = UUID()
+        let paneIndex: Int
+    }
+
     private static let fallbackReconciliationInterval: TimeInterval = 15
     private static let eventRetryDelays: [Duration] = [
         .zero,
@@ -40,7 +45,7 @@ final class LayoutCoordinator {
     private var adoptionTasks: [CGWindowID: Task<Void, Never>] = [:]
     private var frameEnforcementTasks: [CGWindowID: Task<Void, Never>] = [:]
     private var dropAdoptionTask: Task<Void, Never>?
-    private var pendingDropPaneIndex: Int?
+    private var pendingPaneDrop: PendingPaneDrop?
     private var closingWindowIDs = Set<CGWindowID>()
     private lazy var windowObservationService = WindowObservationService(
         onWindowCreated: { [weak self] pid in
@@ -130,9 +135,7 @@ final class LayoutCoordinator {
         reconciliationTasks.removeAll()
         cancelAllAdoptions()
         cancelAllFrameEnforcement()
-        dropAdoptionTask?.cancel()
-        dropAdoptionTask = nil
-        pendingDropPaneIndex = nil
+        cancelPendingDropAdoption()
         dropTracker.stop()
         closingWindowIDs.removeAll()
 
@@ -491,8 +494,8 @@ final class LayoutCoordinator {
             relativeTo: session.screen.frame
         )
         let paneIndex: Int
-        if let pendingDropPaneIndex, session.panes.indices.contains(pendingDropPaneIndex) {
-            paneIndex = pendingDropPaneIndex
+        if let pendingPaneDrop, session.panes.indices.contains(pendingPaneDrop.paneIndex) {
+            paneIndex = pendingPaneDrop.paneIndex
         } else if let placed = NewWindowPlacement.paneIndex(
             windowFrame: appKitFrame,
             paneFrames: session.panes.map(\.geometry.paneFrame),
@@ -634,9 +637,25 @@ final class LayoutCoordinator {
                 from: sourcePaneIndex,
                 direction: direction,
                 kind: session.kind
-            ),
+            )
+        else {
+            return
+        }
+
+        moveTab(tabIndex, fromPane: sourcePaneIndex, toPane: targetPaneIndex, in: session)
+    }
+
+    /// Tab 栏箭头和跨格拖放共用同一份换格语义，保证 MRU、焦点恢复与窗口 frame 一致。
+    private func moveTab(
+        _ tabIndex: Int,
+        fromPane sourcePaneIndex: Int,
+        toPane targetPaneIndex: Int,
+        in session: LayoutSession
+    ) {
+        guard
             session.panes.indices.contains(sourcePaneIndex),
             session.panes.indices.contains(targetPaneIndex),
+            sourcePaneIndex != targetPaneIndex,
             session.panes[sourcePaneIndex].windows.indices.contains(tabIndex)
         else {
             return
@@ -663,6 +682,7 @@ final class LayoutCoordinator {
             for: window
         )
         windowController.raise(window)
+        scheduleFrameEnforcement(for: window.windowID)
 
         if !sourcePane.windows.isEmpty {
             let replacement = sourcePane.windows[sourcePane.selectedIndex]
@@ -687,25 +707,117 @@ final class LayoutCoordinator {
     }
 
     private func startDropTracking(for session: LayoutSession) {
-        dropTracker.onDropInPane = { [weak self] paneIndex in
-            self?.adoptDroppedWindows(intoPane: paneIndex)
+        dropTracker.onDropBetweenPanes = { [weak self] destination in
+            self?.handleDrop(between: destination)
         }
         dropTracker.start(paneFrames: session.panes.map(\.geometry.paneFrame))
+    }
+
+    /// 已接管窗口直接换格；Chrome 刚拖出的新窗口则交给短时发现流程并入目标格。
+    private func handleDrop(between destination: PaneDropDestination) {
+        guard
+            let session,
+            session.panes.indices.contains(destination.sourcePaneIndex),
+            session.panes.indices.contains(destination.targetPaneIndex)
+        else {
+            return
+        }
+
+        cancelPendingDropAdoption()
+        if reassignDraggedManagedWindow(between: destination, in: session) {
+            return
+        }
+        adoptDroppedWindows(intoPane: destination.targetPaneIndex)
+    }
+
+    /// 文本、链接等普通拖放不会改变窗口 frame；只有 frame 离开所属格位的受管窗口才允许换格。
+    private func reassignDraggedManagedWindow(
+        between destination: PaneDropDestination,
+        in session: LayoutSession
+    ) -> Bool {
+        let managedWindows = session.panes.flatMap(\.windows)
+        var candidates: [ManagedWindow] = []
+
+        if let focused = windowController.focusedManagedWindow(in: managedWindows) {
+            candidates.append(focused)
+        }
+        let sourcePane = session.panes[destination.sourcePaneIndex]
+        if sourcePane.windows.indices.contains(sourcePane.selectedIndex) {
+            let selected = sourcePane.windows[sourcePane.selectedIndex]
+            if !candidates.contains(where: { $0.refersToSameAccessibilityWindow(as: selected) }) {
+                candidates.append(selected)
+            }
+        }
+
+        for candidate in candidates {
+            guard let membership = managedWindowMembership(candidate, in: session) else {
+                continue
+            }
+            guard
+                membership.paneIndex == destination.sourcePaneIndex
+                    || membership.paneIndex == destination.targetPaneIndex
+            else {
+                continue
+            }
+            let expectedAXFrame = ScreenFrameConversion.flippingY(
+                session.panes[membership.paneIndex].geometry.windowFrame,
+                relativeTo: session.screen.frame
+            )
+            guard
+                let actualAXFrame = AXHelpers.frame(of: candidate.element),
+                !PaneFrameFit.matches(actualAXFrame, expected: expectedAXFrame)
+            else {
+                continue
+            }
+
+            if membership.paneIndex == destination.targetPaneIndex {
+                windowController.setAppKitFrame(
+                    session.panes[membership.paneIndex].geometry.windowFrame,
+                    on: session.screen,
+                    for: candidate
+                )
+                windowController.raise(candidate)
+                scheduleFrameEnforcement(for: candidate.windowID)
+            } else {
+                moveTab(
+                    membership.tabIndex,
+                    fromPane: membership.paneIndex,
+                    toPane: destination.targetPaneIndex,
+                    in: session
+                )
+            }
+            return true
+        }
+        return false
+    }
+
+    private func managedWindowMembership(
+        _ window: ManagedWindow,
+        in session: LayoutSession
+    ) -> (paneIndex: Int, tabIndex: Int)? {
+        for paneIndex in session.panes.indices {
+            if let tabIndex = session.panes[paneIndex].windows.firstIndex(where: {
+                $0.refersToSameAccessibilityWindow(as: window)
+            }) {
+                return (paneIndex, tabIndex)
+            }
+        }
+        return nil
     }
 
     /// 松手时格位已由蒙版确定；此后短时间内出现的新窗口一律进该格并铺满。
     private func adoptDroppedWindows(intoPane paneIndex: Int) {
         guard let session, session.panes.indices.contains(paneIndex) else { return }
 
-        pendingDropPaneIndex = paneIndex
-        dropAdoptionTask?.cancel()
+        let pendingDrop = PendingPaneDrop(paneIndex: paneIndex)
+        pendingPaneDrop = pendingDrop
         dropAdoptionTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
-                if self.pendingDropPaneIndex == paneIndex {
-                    self.pendingDropPaneIndex = nil
+                if self.pendingPaneDrop == pendingDrop {
+                    self.pendingPaneDrop = nil
+                    self.dropAdoptionTask = nil
                 }
-                self.dropAdoptionTask = nil
             }
 
             for delay in Self.dropAdoptionDelays {
@@ -720,6 +832,8 @@ final class LayoutCoordinator {
                     comparedWith: managedWindows
                 )
                 for window in newcomers {
+                    self.adoptionTasks[window.windowID]?.cancel()
+                    self.adoptionTasks[window.windowID] = nil
                     self.addNewWindow(window, to: session)
                 }
                 if !newcomers.isEmpty {
@@ -750,6 +864,11 @@ final class LayoutCoordinator {
                 guard self.windowController.isAlive(window) else { return }
 
                 let currentFrame = AXHelpers.frame(of: window.element) ?? lastFrame
+                if self.dropTracker.isTrackingMouseDrag {
+                    stableCount = 0
+                    lastFrame = currentFrame
+                    continue
+                }
                 stableCount = WindowSettle.nextStableCount(
                     previous: lastFrame,
                     current: currentFrame,
@@ -778,6 +897,12 @@ final class LayoutCoordinator {
             task.cancel()
         }
         adoptionTasks.removeAll()
+    }
+
+    private func cancelPendingDropAdoption() {
+        dropAdoptionTask?.cancel()
+        dropAdoptionTask = nil
+        pendingPaneDrop = nil
     }
 
     private func scheduleFrameEnforcement(for windowID: CGWindowID) {

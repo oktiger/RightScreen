@@ -200,15 +200,15 @@ struct PaneTabHistoryTests {
         ).map(\.paneFrame)
 
         #expect(
-            PaneDropHighlight.targetPaneIndex(
+            PaneDropHighlight.destination(
                 originPaneIndex: 0,
                 cursor: CGPoint(x: 900, y: 400),
                 originPoint: CGPoint(x: 200, y: 400),
                 paneFrames: panes
-            ) == 1
+            ) == PaneDropDestination(sourcePaneIndex: 0, targetPaneIndex: 1)
         )
         #expect(
-            PaneDropHighlight.targetPaneIndex(
+            PaneDropHighlight.destination(
                 originPaneIndex: 0,
                 cursor: CGPoint(x: 204, y: 400),
                 originPoint: CGPoint(x: 200, y: 400),
@@ -216,12 +216,28 @@ struct PaneTabHistoryTests {
             ) == nil
         )
         #expect(
-            PaneDropHighlight.targetPaneIndex(
+            PaneDropHighlight.destination(
                 originPaneIndex: 0,
                 cursor: CGPoint(x: 200, y: 400),
                 originPoint: CGPoint(x: 80, y: 400),
                 paneFrames: panes
             ) == nil
         )
+    }
+
+    @Test func dropDestinationKeepsTheRightToLeftSourceAndTarget() {
+        let panes = LayoutEngine.geometries(
+            for: .split2,
+            in: CGRect(x: 0, y: 50, width: 1200, height: 800)
+        ).map(\.paneFrame)
+
+        let destination = PaneDropHighlight.destination(
+            originPaneIndex: 1,
+            cursor: CGPoint(x: 200, y: 400),
+            originPoint: CGPoint(x: 900, y: 400),
+            paneFrames: panes
+        )
+
+        #expect(destination == PaneDropDestination(sourcePaneIndex: 1, targetPaneIndex: 0))
     }
 }
