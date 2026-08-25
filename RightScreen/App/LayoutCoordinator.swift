@@ -22,13 +22,25 @@ final class LayoutCoordinator {
     ]
     private static let settlePollInterval: Duration = .milliseconds(50)
     private static let settleTimeout: Duration = .seconds(8)
+    private static let dropAdoptionDelays: [Duration] = [
+        .zero,
+        .milliseconds(50),
+        .milliseconds(120),
+        .milliseconds(250),
+        .milliseconds(450),
+        .milliseconds(800),
+        .milliseconds(1300)
+    ]
 
     private let windowIndexer = WindowIndexer()
     private let windowController = WindowController()
+    private let dropTracker = PaneDropTracker()
     private var reconciliationTimer: Timer?
     private var reconciliationTasks: [pid_t: Task<Void, Never>] = [:]
     private var adoptionTasks: [CGWindowID: Task<Void, Never>] = [:]
     private var frameEnforcementTasks: [CGWindowID: Task<Void, Never>] = [:]
+    private var dropAdoptionTask: Task<Void, Never>?
+    private var pendingDropPaneIndex: Int?
     private var closingWindowIDs = Set<CGWindowID>()
     private lazy var windowObservationService = WindowObservationService(
         onWindowCreated: { [weak self] pid in
@@ -88,6 +100,7 @@ final class LayoutCoordinator {
         applyInitialLayout(newSession)
         createTabBars(for: newSession)
         startObservingWindows()
+        startDropTracking(for: newSession)
     }
 
     func startBento() {
@@ -117,6 +130,10 @@ final class LayoutCoordinator {
         reconciliationTasks.removeAll()
         cancelAllAdoptions()
         cancelAllFrameEnforcement()
+        dropAdoptionTask?.cancel()
+        dropAdoptionTask = nil
+        pendingDropPaneIndex = nil
+        dropTracker.stop()
         closingWindowIDs.removeAll()
 
         if let session {
@@ -473,12 +490,19 @@ final class LayoutCoordinator {
             latestFrame,
             relativeTo: session.screen.frame
         )
-        guard let paneIndex = NewWindowPlacement.paneIndex(
+        let paneIndex: Int
+        if let pendingDropPaneIndex, session.panes.indices.contains(pendingDropPaneIndex) {
+            paneIndex = pendingDropPaneIndex
+        } else if let placed = NewWindowPlacement.paneIndex(
             windowFrame: appKitFrame,
             paneFrames: session.panes.map(\.geometry.paneFrame),
             lastFocusedPaneIndex: session.lastFocusedPaneIndex,
             paneWindowCounts: session.panes.map(\.windows.count)
-        ) else { return }
+        ) {
+            paneIndex = placed
+        } else {
+            return
+        }
 
         var pane = session.panes[paneIndex]
         session.originalFrames[window.windowID] = latestFrame
@@ -660,6 +684,50 @@ final class LayoutCoordinator {
         session.lastFocusedPaneIndex = targetPaneIndex
         createOrUpdateTabBar(forPane: sourcePaneIndex, in: session)
         createOrUpdateTabBar(forPane: targetPaneIndex, in: session)
+    }
+
+    private func startDropTracking(for session: LayoutSession) {
+        dropTracker.onDropInPane = { [weak self] paneIndex in
+            self?.adoptDroppedWindows(intoPane: paneIndex)
+        }
+        dropTracker.start(paneFrames: session.panes.map(\.geometry.paneFrame))
+    }
+
+    /// 松手时格位已由蒙版确定；此后短时间内出现的新窗口一律进该格并铺满。
+    private func adoptDroppedWindows(intoPane paneIndex: Int) {
+        guard let session, session.panes.indices.contains(paneIndex) else { return }
+
+        pendingDropPaneIndex = paneIndex
+        dropAdoptionTask?.cancel()
+        dropAdoptionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.pendingDropPaneIndex == paneIndex {
+                    self.pendingDropPaneIndex = nil
+                }
+                self.dropAdoptionTask = nil
+            }
+
+            for delay in Self.dropAdoptionDelays {
+                if delay != .zero {
+                    try? await Task.sleep(for: delay)
+                }
+                guard !Task.isCancelled, let session = self.session else { return }
+
+                let managedWindows = session.panes.flatMap(\.windows)
+                let newcomers = self.unmanagedWindows(
+                    among: self.windowIndexer.currentSpaceWindows(),
+                    comparedWith: managedWindows
+                )
+                for window in newcomers {
+                    self.addNewWindow(window, to: session)
+                }
+                if !newcomers.isEmpty {
+                    try? await Task.sleep(for: .milliseconds(800))
+                    return
+                }
+            }
+        }
     }
 
     private func scheduleSettledAdoption(for window: ManagedWindow) {

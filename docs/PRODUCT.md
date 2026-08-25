@@ -116,7 +116,7 @@ macOS 菜单栏窗口管理工具。提供两种互斥布局模式：
 - 换格快捷键：对当前聚焦 Tab 执行该方向的箭头；该格没有对应箭头时忽略。未进入 Tab Mode 时四向快捷键不生效。
 - 换格箭头仅显示合法相邻格：左右二分 / 左右三等分仅水平（三等分中格可左右，左右格各只朝向中间）；上下二分仅垂直；1+2 / 2+1 / 四等分按格位邻接。
 - **每格记住最近使用的 Tab（MRU）**。关闭或把当前 Tab 换到邻格后，该格回到上一工作窗口，而不是第一个 Tab。
-- **新窗口按落点并入窗格**，成为该格当前 Tab。拖动尚未松手、窗口仍在移动时不接管。判定顺序：窗口中心点落在哪一格就进哪一格；中心不在任何格内时，若与某一格的相交面积严格最大则并入该格；否则并入当前焦点窗格（焦点格无效时退回窗口最少的格）。典型路径：从 Chrome 拖出标签落到右半屏并松手 → 新窗口进右格并铺满该格，左格继续显示原窗口。不解析 Chrome 内部标签，只把拖出后的新窗口当整窗管理。若用户尚未点选该 Tab 就把它换到邻格，焦点回到源格上一工作窗口（例：左格正在用 3 号，新软件变成 4 号并激活，把 4 号移到右侧后，左侧回到 3 号并继续操作）。若用户先点选了该 Tab 再换格，焦点跟随被移动的窗口；源格仍显示上一工作窗口。
+- **新窗口按落点并入窗格**，成为该格当前 Tab。Tab Mode 下从一格拖到另一格时，目标格显示淡蓝半透明蒙版（忽略鼠标，不抢 Chrome 松手）。松手后把新窗口并入蒙版所在格并铺满该格。拖动尚未松手时不 raise / 不改 frame。若没有跨格拖放，仍按窗口中心点（否则相交面积，否则焦点格）并入。典型路径：从 Chrome 拖出标签移到右半屏 → 右格出现淡蓝蒙版 → 松手后新窗口成为右格当前 Tab 并铺满右半屏，左格继续显示原窗口。不解析 Chrome 内部标签，只把拖出后的新窗口当整窗管理。若用户尚未点选该 Tab 就把它换到邻格，焦点回到源格上一工作窗口（例：左格正在用 3 号，新软件变成 4 号并激活，把 4 号移到右侧后，左侧回到 3 号并继续操作）。若用户先点选了该 Tab 再换格，焦点跟随被移动的窗口；源格仍显示上一工作窗口。
 
 ### 2.7 退出布局
 
@@ -152,6 +152,7 @@ LayoutEngine             Tab 预设几何 + 窗口→窗格分配
 BentoEngine              BSP 树构建 / 布局 / 分隔比例
 WindowController         setFrame / raise / hide 的统一出口
 PaneTabBarPanel          Tab Mode：每格一条浮层 Tab UI
+PaneDropOverlayPanel     Tab Mode：跨格拖放时的淡蓝落点蒙版
 BentoDividerController   网格模式：分隔条把手
 BentoPreviewPanel        网格模式：拖动时 Icon 玻璃预览
 LayoutSession            Tab 会话
@@ -181,7 +182,7 @@ RightScreen/
 ├── App/           # AppDelegate, StatusItem, Permissions, Coordinator
 ├── Windowing/     # Indexer, Controller, AX helpers
 ├── Layout/        # LayoutKind, LayoutEngine, BentoEngine
-├── Chrome/        # PaneTabBarPanel, BentoDivider, BentoPreview
+├── Chrome/        # PaneTabBarPanel, PaneDropOverlay, BentoDivider, BentoPreview
 ├── Store/         # LayoutSession, BentoSession
 ├── HotKeys/       # HotKeyCenter, KeyChord, 设置存储
 └── Resources/     # Info.plist, Assets

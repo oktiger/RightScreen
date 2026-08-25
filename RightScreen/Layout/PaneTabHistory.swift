@@ -38,10 +38,7 @@ enum NewWindowPlacement {
             return nil
         }
 
-        if let hit = uniquePane(
-            containing: CGPoint(x: windowFrame.midX, y: windowFrame.midY),
-            in: paneFrames
-        ) {
+        if let hit = paneIndex(containing: CGPoint(x: windowFrame.midX, y: windowFrame.midY), in: paneFrames) {
             return hit
         }
 
@@ -58,7 +55,7 @@ enum NewWindowPlacement {
         )
     }
 
-    private static func uniquePane(containing point: CGPoint, in paneFrames: [CGRect]) -> Int? {
+    static func paneIndex(containing point: CGPoint, in paneFrames: [CGRect]) -> Int? {
         let hits = paneFrames.indices.filter { paneFrames[$0].contains(point) }
         return hits.count == 1 ? hits[0] : nil
     }
