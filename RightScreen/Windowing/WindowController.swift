@@ -133,11 +133,6 @@ final class WindowController {
     }
 
     private func accessibilityFrame(from appKitFrame: CGRect, mainScreen: NSScreen) -> CGRect {
-        CGRect(
-            x: appKitFrame.minX,
-            y: mainScreen.frame.maxY - appKitFrame.maxY,
-            width: appKitFrame.width,
-            height: appKitFrame.height
-        )
+        ScreenFrameConversion.flippingY(appKitFrame, relativeTo: mainScreen.frame)
     }
 }

@@ -451,13 +451,20 @@ final class LayoutCoordinator {
             return
         }
 
+        let latestFrame = AXHelpers.frame(of: window.element) ?? window.frame
+        let appKitFrame = ScreenFrameConversion.flippingY(
+            latestFrame,
+            relativeTo: session.screen.frame
+        )
         guard let paneIndex = NewWindowPlacement.paneIndex(
+            windowFrame: appKitFrame,
+            paneFrames: session.panes.map(\.geometry.paneFrame),
             lastFocusedPaneIndex: session.lastFocusedPaneIndex,
             paneWindowCounts: session.panes.map(\.windows.count)
         ) else { return }
 
         var pane = session.panes[paneIndex]
-        session.originalFrames[window.windowID] = window.frame
+        session.originalFrames[window.windowID] = latestFrame
         session.autoJoinedWindowIDs.insert(window.windowID)
         pane.windows.append(window)
         pane.selectWindow(at: pane.windows.count - 1)

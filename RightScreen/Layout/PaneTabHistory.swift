@@ -26,8 +26,68 @@ enum PaneTabHistory {
 }
 
 enum NewWindowPlacement {
-    /// 新窗口并入当前正在工作的窗格；焦点格无效时退回窗口最少的格。
-    static func paneIndex(lastFocusedPaneIndex: Int, paneWindowCounts: [Int]) -> Int? {
+    /// 新窗口按落点并入：中心点命中的格优先；中心脱格时取相交面积唯一最大的格；再退回焦点格，焦点无效则窗口最少的格。
+    /// `windowFrame` / `paneFrames` 须同为 AppKit 坐标（与 `PaneGeometry.paneFrame` 一致）。
+    static func paneIndex(
+        windowFrame: CGRect,
+        paneFrames: [CGRect],
+        lastFocusedPaneIndex: Int,
+        paneWindowCounts: [Int]
+    ) -> Int? {
+        guard !paneFrames.isEmpty, paneFrames.count == paneWindowCounts.count else {
+            return nil
+        }
+
+        if let hit = uniquePane(
+            containing: CGPoint(x: windowFrame.midX, y: windowFrame.midY),
+            in: paneFrames
+        ) {
+            return hit
+        }
+
+        if let overlap = uniquelyLargestOverlapIndex(
+            windowFrame: windowFrame,
+            paneFrames: paneFrames
+        ) {
+            return overlap
+        }
+
+        return focusedOrLeastFull(
+            lastFocusedPaneIndex: lastFocusedPaneIndex,
+            paneWindowCounts: paneWindowCounts
+        )
+    }
+
+    private static func uniquePane(containing point: CGPoint, in paneFrames: [CGRect]) -> Int? {
+        let hits = paneFrames.indices.filter { paneFrames[$0].contains(point) }
+        return hits.count == 1 ? hits[0] : nil
+    }
+
+    private static func uniquelyLargestOverlapIndex(
+        windowFrame: CGRect,
+        paneFrames: [CGRect]
+    ) -> Int? {
+        let areas = paneFrames.map { intersectionArea(windowFrame, $0) }
+        guard let best = areas.enumerated().max(by: { $0.element < $1.element }),
+              best.element > 0
+        else {
+            return nil
+        }
+
+        let tied = areas.indices.filter { areas[$0] == best.element }
+        return tied.count == 1 ? best.offset : nil
+    }
+
+    private static func intersectionArea(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
+        let intersection = lhs.intersection(rhs)
+        guard !intersection.isNull, !intersection.isInfinite else { return 0 }
+        return max(0, intersection.width) * max(0, intersection.height)
+    }
+
+    private static func focusedOrLeastFull(
+        lastFocusedPaneIndex: Int,
+        paneWindowCounts: [Int]
+    ) -> Int? {
         guard !paneWindowCounts.isEmpty else { return nil }
         if paneWindowCounts.indices.contains(lastFocusedPaneIndex) {
             return lastFocusedPaneIndex
