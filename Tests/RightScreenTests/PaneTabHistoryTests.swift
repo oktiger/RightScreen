@@ -181,4 +181,15 @@ struct PaneTabHistoryTests {
 
         #expect(!PaneFrameFit.matches(dropped, expected: expected))
     }
+
+    @Test func windowSettleCountsStillFramesAndResetsWhenMoved() {
+        let origin = CGRect(x: 100, y: 100, width: 240, height: 180)
+        let jitter = CGRect(x: 104, y: 101, width: 240, height: 180)
+        let dragged = CGRect(x: 400, y: 180, width: 240, height: 180)
+
+        #expect(WindowSettle.nextStableCount(previous: origin, current: jitter, stableCount: 0) == 1)
+        #expect(WindowSettle.nextStableCount(previous: jitter, current: dragged, stableCount: 1) == 0)
+        #expect(!WindowSettle.isSettled(2))
+        #expect(WindowSettle.isSettled(3))
+    }
 }

@@ -98,6 +98,20 @@ enum NewWindowPlacement {
     }
 }
 
+enum WindowSettle {
+    static let maxGeometryDelta: CGFloat = 12
+    static let requiredStableReads = 3
+
+    /// 连续读到几乎不动的 frame 则累加；一旦明显移动就清零。
+    static func nextStableCount(previous: CGRect, current: CGRect, stableCount: Int) -> Int {
+        WindowIndexer.geometryDelta(previous, current) <= maxGeometryDelta ? stableCount + 1 : 0
+    }
+
+    static func isSettled(_ stableCount: Int) -> Bool {
+        stableCount >= requiredStableReads
+    }
+}
+
 enum PaneFrameFit {
     static let originSlop: CGFloat = 32
     static let sizeSlop: CGFloat = 40

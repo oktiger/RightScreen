@@ -20,11 +20,14 @@ final class LayoutCoordinator {
         .milliseconds(750),
         .milliseconds(1200)
     ]
+    private static let settlePollInterval: Duration = .milliseconds(50)
+    private static let settleTimeout: Duration = .seconds(8)
 
     private let windowIndexer = WindowIndexer()
     private let windowController = WindowController()
     private var reconciliationTimer: Timer?
     private var reconciliationTasks: [pid_t: Task<Void, Never>] = [:]
+    private var adoptionTasks: [CGWindowID: Task<Void, Never>] = [:]
     private var frameEnforcementTasks: [CGWindowID: Task<Void, Never>] = [:]
     private var closingWindowIDs = Set<CGWindowID>()
     private lazy var windowObservationService = WindowObservationService(
@@ -112,6 +115,7 @@ final class LayoutCoordinator {
             task.cancel()
         }
         reconciliationTasks.removeAll()
+        cancelAllAdoptions()
         cancelAllFrameEnforcement()
         closingWindowIDs.removeAll()
 
@@ -234,7 +238,7 @@ final class LayoutCoordinator {
                 among: windowIndexer.currentSpaceWindows(),
                 comparedWith: liveWindows
             ) {
-                addNewWindowToBento(candidate, session: session)
+                scheduleSettledAdoption(for: candidate)
             }
         }
     }
@@ -371,7 +375,7 @@ final class LayoutCoordinator {
             among: windowIndexer.currentSpaceWindows(),
             comparedWith: managedWindows
         ) {
-            addNewWindow(candidate, to: session)
+            scheduleSettledAdoption(for: candidate)
         }
     }
 
@@ -401,7 +405,7 @@ final class LayoutCoordinator {
             let managedWindows = session.panes.flatMap(\.windows)
             let newWindows = unmanagedWindows(among: candidates, comparedWith: managedWindows)
             for window in newWindows {
-                addNewWindow(window, to: session)
+                scheduleSettledAdoption(for: window)
             }
             return newWindows.count
         }
@@ -410,7 +414,7 @@ final class LayoutCoordinator {
             let managedWindows = BentoEngine.leafValues(bentoSession.tree)
             let newWindows = unmanagedWindows(among: candidates, comparedWith: managedWindows)
             for window in newWindows {
-                addNewWindowToBento(window, session: bentoSession)
+                scheduleSettledAdoption(for: window)
             }
             return newWindows.count
         }
@@ -483,6 +487,7 @@ final class LayoutCoordinator {
         pane.selectWindow(at: pane.windows.count - 1)
         session.panes[paneIndex] = pane
 
+        windowController.setAppKitFrame(pane.geometry.windowFrame, on: session.screen, for: window)
         windowController.raise(window)
         session.lastFocusedPaneIndex = paneIndex
         createOrUpdateTabBar(forPane: paneIndex, in: session)
@@ -655,6 +660,56 @@ final class LayoutCoordinator {
         session.lastFocusedPaneIndex = targetPaneIndex
         createOrUpdateTabBar(forPane: sourcePaneIndex, in: session)
         createOrUpdateTabBar(forPane: targetPaneIndex, in: session)
+    }
+
+    private func scheduleSettledAdoption(for window: ManagedWindow) {
+        let windowID = window.windowID
+        guard adoptionTasks[windowID] == nil, frameEnforcementTasks[windowID] == nil else {
+            return
+        }
+
+        adoptionTasks[windowID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.adoptionTasks[windowID] = nil }
+
+            var lastFrame = AXHelpers.frame(of: window.element) ?? window.frame
+            var stableCount = 0
+            let deadline = ContinuousClock.now + Self.settleTimeout
+
+            while !Task.isCancelled, self.hasActiveLayout, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: Self.settlePollInterval)
+                guard !Task.isCancelled, self.hasActiveLayout else { return }
+                guard self.windowController.isAlive(window) else { return }
+
+                let currentFrame = AXHelpers.frame(of: window.element) ?? lastFrame
+                stableCount = WindowSettle.nextStableCount(
+                    previous: lastFrame,
+                    current: currentFrame,
+                    stableCount: stableCount
+                )
+                lastFrame = currentFrame
+                if WindowSettle.isSettled(stableCount) {
+                    break
+                }
+            }
+
+            guard !Task.isCancelled, self.hasActiveLayout, self.windowController.isAlive(window) else {
+                return
+            }
+
+            if let session = self.session {
+                self.addNewWindow(window, to: session)
+            } else if let bentoSession = self.bentoSession {
+                self.addNewWindowToBento(window, session: bentoSession)
+            }
+        }
+    }
+
+    private func cancelAllAdoptions() {
+        for task in adoptionTasks.values {
+            task.cancel()
+        }
+        adoptionTasks.removeAll()
     }
 
     private func scheduleFrameEnforcement(for windowID: CGWindowID) {
