@@ -10,11 +10,22 @@ final class LayoutCoordinator {
         .milliseconds(180),
         .milliseconds(400)
     ]
+    /// Chrome 拖出标签后会再写一遍自身尺寸，短延迟内反复提交格位 frame。
+    private static let frameEnforcementDelays: [Duration] = [
+        .zero,
+        .milliseconds(50),
+        .milliseconds(120),
+        .milliseconds(250),
+        .milliseconds(450),
+        .milliseconds(750),
+        .milliseconds(1200)
+    ]
 
     private let windowIndexer = WindowIndexer()
     private let windowController = WindowController()
     private var reconciliationTimer: Timer?
     private var reconciliationTasks: [pid_t: Task<Void, Never>] = [:]
+    private var frameEnforcementTasks: [CGWindowID: Task<Void, Never>] = [:]
     private var closingWindowIDs = Set<CGWindowID>()
     private lazy var windowObservationService = WindowObservationService(
         onWindowCreated: { [weak self] pid in
@@ -101,6 +112,7 @@ final class LayoutCoordinator {
             task.cancel()
         }
         reconciliationTasks.removeAll()
+        cancelAllFrameEnforcement()
         closingWindowIDs.removeAll()
 
         if let session {
@@ -242,6 +254,7 @@ final class LayoutCoordinator {
         session.tree = rebuilt
         applyBentoFrames(session)
         session.dividerController?.update(dividers: session.dividerLayouts())
+        scheduleFrameEnforcement(for: window.windowID)
     }
 
     // MARK: - Tab layout (existing)
@@ -470,10 +483,10 @@ final class LayoutCoordinator {
         pane.selectWindow(at: pane.windows.count - 1)
         session.panes[paneIndex] = pane
 
-        windowController.setAppKitFrame(pane.geometry.windowFrame, on: session.screen, for: window)
         windowController.raise(window)
         session.lastFocusedPaneIndex = paneIndex
         createOrUpdateTabBar(forPane: paneIndex, in: session)
+        scheduleFrameEnforcement(for: window.windowID)
     }
 
     private func removeClosedWindows(from session: LayoutSession) {
@@ -487,6 +500,9 @@ final class LayoutCoordinator {
 
             let closedIDs = Set(pane.windows.map(\.windowID)).subtracting(liveWindows.map(\.windowID))
             session.autoJoinedWindowIDs.subtract(closedIDs)
+            for windowID in closedIDs {
+                cancelFrameEnforcement(for: windowID)
+            }
             pane.windows = liveWindows
             pane.activationHistory.removeAll { id in
                 !liveWindows.contains(where: { $0.windowID == id })
@@ -558,6 +574,7 @@ final class LayoutCoordinator {
         }
 
         closingWindowIDs.insert(window.windowID)
+        cancelFrameEnforcement(for: window.windowID)
         session.originalFrames.removeValue(forKey: window.windowID)
         session.autoJoinedWindowIDs.remove(window.windowID)
         let wasSelected = tabIndex == pane.selectedIndex
@@ -638,6 +655,72 @@ final class LayoutCoordinator {
         session.lastFocusedPaneIndex = targetPaneIndex
         createOrUpdateTabBar(forPane: sourcePaneIndex, in: session)
         createOrUpdateTabBar(forPane: targetPaneIndex, in: session)
+    }
+
+    private func scheduleFrameEnforcement(for windowID: CGWindowID) {
+        frameEnforcementTasks[windowID]?.cancel()
+        frameEnforcementTasks[windowID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            for delay in Self.frameEnforcementDelays {
+                if delay != .zero {
+                    try? await Task.sleep(for: delay)
+                }
+                guard !Task.isCancelled, self.hasActiveLayout else { return }
+                if self.enforceManagedWindowFrame(windowID: windowID) {
+                    break
+                }
+            }
+            self.frameEnforcementTasks[windowID] = nil
+        }
+    }
+
+    /// 把窗口重新写入当前所属格位。已贴合格位则返回 true，停止重试。
+    @discardableResult
+    private func enforceManagedWindowFrame(windowID: CGWindowID) -> Bool {
+        if let session {
+            for pane in session.panes {
+                guard let window = pane.windows.first(where: { $0.windowID == windowID }) else {
+                    continue
+                }
+                let expected = pane.geometry.windowFrame
+                windowController.setAppKitFrame(expected, on: session.screen, for: window)
+                let expectedAX = ScreenFrameConversion.flippingY(
+                    expected,
+                    relativeTo: session.screen.frame
+                )
+                return windowController.frameMatches(window, accessibilityFrame: expectedAX)
+            }
+            return true
+        }
+
+        if let bentoSession {
+            guard let leaf = bentoSession.leafLayouts().first(where: {
+                $0.value.windowID == windowID
+            }) else {
+                return true
+            }
+            windowController.setAppKitFrame(leaf.frame, on: bentoSession.screen, for: leaf.value)
+            let expectedAX = ScreenFrameConversion.flippingY(
+                leaf.frame,
+                relativeTo: bentoSession.screen.frame
+            )
+            return windowController.frameMatches(leaf.value, accessibilityFrame: expectedAX)
+        }
+
+        return true
+    }
+
+    private func cancelFrameEnforcement(for windowID: CGWindowID) {
+        frameEnforcementTasks[windowID]?.cancel()
+        frameEnforcementTasks[windowID] = nil
+    }
+
+    private func cancelAllFrameEnforcement() {
+        for task in frameEnforcementTasks.values {
+            task.cancel()
+        }
+        frameEnforcementTasks.removeAll()
     }
 
     // MARK: - Shared helpers

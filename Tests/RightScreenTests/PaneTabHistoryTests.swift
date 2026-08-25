@@ -167,4 +167,18 @@ struct PaneTabHistoryTests {
         #expect(WindowFocusMatch.bestIndex(deltas: [4, 40]) == 0)
         #expect(WindowFocusMatch.bestIndex(deltas: [80, 90]) == nil)
     }
+
+    @Test func paneFrameFitAcceptsChromeStyleInsets() {
+        let expected = CGRect(x: 20, y: 40, width: 600, height: 768)
+        let chromeInset = CGRect(x: 8, y: 28, width: 624, height: 792)
+
+        #expect(PaneFrameFit.matches(chromeInset, expected: expected))
+    }
+
+    @Test func paneFrameFitRejectsTheDetachedOriginalSize() {
+        let expected = CGRect(x: 600, y: 50, width: 600, height: 768)
+        let dropped = CGRect(x: 720, y: 200, width: 240, height: 180)
+
+        #expect(!PaneFrameFit.matches(dropped, expected: expected))
+    }
 }

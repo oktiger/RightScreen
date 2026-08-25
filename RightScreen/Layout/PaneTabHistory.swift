@@ -98,6 +98,19 @@ enum NewWindowPlacement {
     }
 }
 
+enum PaneFrameFit {
+    static let originSlop: CGFloat = 32
+    static let sizeSlop: CGFloat = 40
+
+    /// Chrome 等会带边框 inset；只要已经铺进格位就视为成功，避免无限重试。
+    static func matches(_ actual: CGRect, expected: CGRect) -> Bool {
+        abs(actual.minX - expected.minX) <= originSlop
+            && abs(actual.minY - expected.minY) <= originSlop
+            && abs(actual.width - expected.width) <= sizeSlop
+            && abs(actual.height - expected.height) <= sizeSlop
+    }
+}
+
 enum WindowFocusMatch {
     static let maxGeometryDelta: CGFloat = 48
 

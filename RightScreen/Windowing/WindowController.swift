@@ -8,17 +8,21 @@ final class WindowController {
     func setAccessibilityFrame(_ frame: CGRect, for window: ManagedWindow) -> Bool {
         guard isAlive(window) else { return false }
 
-        let positionResult = AXHelpers.set(
-            point: frame.origin,
-            attribute: kAXPositionAttribute as CFString,
-            on: window.element
-        )
-        let sizeResult = AXHelpers.set(
-            size: frame.size,
-            attribute: kAXSizeAttribute as CFString,
-            on: window.element
-        )
-        return positionResult == .success && sizeResult == .success
+        // 先按常规 position→size；读回失败时再走 size→position 双写。
+        // Chrome 拖出标签后常先接受写入、再被自身布局盖回原尺寸。
+        applyFrame(frame, to: window, sizeFirst: false)
+        if frameMatches(window, accessibilityFrame: frame) {
+            return true
+        }
+
+        applyFrame(frame, to: window, sizeFirst: true)
+        applyFrame(frame, to: window, sizeFirst: false)
+        return frameMatches(window, accessibilityFrame: frame)
+    }
+
+    func frameMatches(_ window: ManagedWindow, accessibilityFrame expected: CGRect) -> Bool {
+        guard let actual = AXHelpers.frame(of: window.element) else { return false }
+        return PaneFrameFit.matches(actual, expected: expected)
     }
 
     @discardableResult
@@ -130,6 +134,32 @@ final class WindowController {
         }
 
         return candidates.count == 1 ? candidates[0] : nil
+    }
+
+    private func applyFrame(_ frame: CGRect, to window: ManagedWindow, sizeFirst: Bool) {
+        if sizeFirst {
+            _ = AXHelpers.set(
+                size: frame.size,
+                attribute: kAXSizeAttribute as CFString,
+                on: window.element
+            )
+            _ = AXHelpers.set(
+                point: frame.origin,
+                attribute: kAXPositionAttribute as CFString,
+                on: window.element
+            )
+        } else {
+            _ = AXHelpers.set(
+                point: frame.origin,
+                attribute: kAXPositionAttribute as CFString,
+                on: window.element
+            )
+            _ = AXHelpers.set(
+                size: frame.size,
+                attribute: kAXSizeAttribute as CFString,
+                on: window.element
+            )
+        }
     }
 
     private func accessibilityFrame(from appKitFrame: CGRect, mainScreen: NSScreen) -> CGRect {
