@@ -124,8 +124,8 @@ final class WindowController {
                 guard let frame = AXHelpers.frame(of: window.element) else { return nil }
                 return (window, WindowIndexer.geometryDelta(frame, focusedFrame))
             }
-            if let best = scored.min(by: { $0.1 < $1.1 }), best.1 <= 48 {
-                return best.0
+            if let index = WindowFocusMatch.bestIndex(deltas: scored.map(\.1)) {
+                return scored[index].0
             }
         }
 

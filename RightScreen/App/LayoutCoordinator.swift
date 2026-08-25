@@ -433,6 +433,7 @@ final class LayoutCoordinator {
                 continue
             }
             session.lastFocusedPaneIndex = paneIndex
+            session.panes[paneIndex].recordActivation(of: focusedWindow)
             guard pane.selectedIndex != focusedIndex else { return }
 
             session.panes[paneIndex].selectedIndex = focusedIndex
@@ -450,14 +451,16 @@ final class LayoutCoordinator {
             return
         }
 
-        guard let paneIndex = session.panes.indices.min(by: {
-            session.panes[$0].windows.count < session.panes[$1].windows.count
-        }) else { return }
+        guard let paneIndex = NewWindowPlacement.paneIndex(
+            lastFocusedPaneIndex: session.lastFocusedPaneIndex,
+            paneWindowCounts: session.panes.map(\.windows.count)
+        ) else { return }
 
         var pane = session.panes[paneIndex]
         session.originalFrames[window.windowID] = window.frame
+        session.autoJoinedWindowIDs.insert(window.windowID)
         pane.windows.append(window)
-        pane.selectedIndex = pane.windows.count - 1
+        pane.selectWindow(at: pane.windows.count - 1)
         session.panes[paneIndex] = pane
 
         windowController.setAppKitFrame(pane.geometry.windowFrame, on: session.screen, for: window)
@@ -475,11 +478,20 @@ final class LayoutCoordinator {
             let liveWindows = pane.windows.filter(windowController.isAlive)
             guard liveWindows.count != pane.windows.count else { continue }
 
+            let closedIDs = Set(pane.windows.map(\.windowID)).subtracting(liveWindows.map(\.windowID))
+            session.autoJoinedWindowIDs.subtract(closedIDs)
             pane.windows = liveWindows
+            pane.activationHistory.removeAll { id in
+                !liveWindows.contains(where: { $0.windowID == id })
+            }
             if let selectedID, let retainedIndex = liveWindows.firstIndex(where: { $0.windowID == selectedID }) {
                 pane.selectedIndex = retainedIndex
             } else {
-                pane.selectedIndex = min(pane.selectedIndex, max(0, liveWindows.count - 1))
+                pane.selectedIndex = PaneTabHistory.selectedIndex(
+                    remainingIDs: liveWindows.map(\.windowID),
+                    history: pane.activationHistory,
+                    removedIndex: pane.selectedIndex
+                )
                 if let selected = liveWindows.indices.contains(pane.selectedIndex)
                     ? liveWindows[pane.selectedIndex]
                     : nil {
@@ -516,7 +528,8 @@ final class LayoutCoordinator {
             createOrUpdateTabBar(forPane: paneIndex, in: session)
             return
         }
-        session.panes[paneIndex].selectedIndex = selectedIndex
+        session.autoJoinedWindowIDs.remove(selectedWindow.windowID)
+        session.panes[paneIndex].selectWindow(at: selectedIndex)
         session.lastFocusedPaneIndex = paneIndex
         createOrUpdateTabBar(forPane: paneIndex, in: session)
     }
@@ -539,16 +552,10 @@ final class LayoutCoordinator {
 
         closingWindowIDs.insert(window.windowID)
         session.originalFrames.removeValue(forKey: window.windowID)
+        session.autoJoinedWindowIDs.remove(window.windowID)
         let wasSelected = tabIndex == pane.selectedIndex
         pane.windows.remove(at: tabIndex)
-
-        if pane.windows.isEmpty {
-            pane.selectedIndex = 0
-        } else if tabIndex < pane.selectedIndex {
-            pane.selectedIndex -= 1
-        } else {
-            pane.selectedIndex = min(pane.selectedIndex, pane.windows.count - 1)
-        }
+        pane.selectAfterRemoving(windowID: window.windowID, at: tabIndex)
         session.panes[paneIndex] = pane
 
         if wasSelected, !pane.windows.isEmpty {
@@ -584,22 +591,15 @@ final class LayoutCoordinator {
 
         var sourcePane = session.panes[sourcePaneIndex]
         var targetPane = session.panes[targetPaneIndex]
-        let wasSelected = tabIndex == sourcePane.selectedIndex
+        let restoreSourceFocus = session.autoJoinedWindowIDs.contains(
+            sourcePane.windows[tabIndex].windowID
+        )
         let window = sourcePane.windows.remove(at: tabIndex)
-
-        if sourcePane.windows.isEmpty {
-            sourcePane.selectedIndex = 0
-        } else if tabIndex < sourcePane.selectedIndex {
-            sourcePane.selectedIndex -= 1
-        } else {
-            sourcePane.selectedIndex = min(
-                sourcePane.selectedIndex,
-                sourcePane.windows.count - 1
-            )
-        }
+        session.autoJoinedWindowIDs.remove(window.windowID)
+        sourcePane.selectAfterRemoving(windowID: window.windowID, at: tabIndex)
 
         targetPane.windows.append(window)
-        targetPane.selectedIndex = targetPane.windows.count - 1
+        targetPane.selectWindow(at: targetPane.windows.count - 1)
 
         session.panes[sourcePaneIndex] = sourcePane
         session.panes[targetPaneIndex] = targetPane
@@ -609,8 +609,9 @@ final class LayoutCoordinator {
             on: session.screen,
             for: window
         )
+        windowController.raise(window)
 
-        if wasSelected, !sourcePane.windows.isEmpty {
+        if !sourcePane.windows.isEmpty {
             let replacement = sourcePane.windows[sourcePane.selectedIndex]
             windowController.setAppKitFrame(
                 sourcePane.geometry.windowFrame,
@@ -618,6 +619,12 @@ final class LayoutCoordinator {
                 for: replacement
             )
             windowController.raise(replacement)
+            if restoreSourceFocus {
+                session.lastFocusedPaneIndex = sourcePaneIndex
+                createOrUpdateTabBar(forPane: sourcePaneIndex, in: session)
+                createOrUpdateTabBar(forPane: targetPaneIndex, in: session)
+                return
+            }
         }
 
         windowController.raise(window)
