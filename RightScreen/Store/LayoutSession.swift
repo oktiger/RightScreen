@@ -34,7 +34,7 @@ struct PaneState {
 
 @MainActor
 final class LayoutSession {
-    let kind: LayoutKind
+    var kind: LayoutKind
     let screen: NSScreen
     var originalFrames: [CGWindowID: CGRect]
     var panes: [PaneState]

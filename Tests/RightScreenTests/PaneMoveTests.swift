@@ -7,6 +7,56 @@ struct PaneMoveTests {
         #expect(PaneMove.destinationPaneIndex(from: 0, direction: .right, kind: .fullScreen) == nil)
     }
 
+    @Test func expandingFullScreenRightPutsCurrentTabOnTheRight() {
+        let expansion = PaneMove.expandFullScreenToSplit2(
+            windows: ["A", "B", "C"],
+            movingIndex: 1,
+            direction: .right
+        )
+
+        #expect(expansion?.windowsByPane == [["A", "C"], ["B"]])
+        #expect(expansion?.focusedPaneIndex == 1)
+    }
+
+    @Test func expandingFullScreenLeftPutsCurrentTabOnTheLeft() {
+        let expansion = PaneMove.expandFullScreenToSplit2(
+            windows: ["A", "B", "C"],
+            movingIndex: 0,
+            direction: .left
+        )
+
+        #expect(expansion?.windowsByPane == [["A"], ["B", "C"]])
+        #expect(expansion?.focusedPaneIndex == 0)
+    }
+
+    @Test func expandingFullScreenWithASingleWindowLeavesTheOtherPaneEmpty() {
+        let expansion = PaneMove.expandFullScreenToSplit2(
+            windows: ["Solo"],
+            movingIndex: 0,
+            direction: .right
+        )
+
+        #expect(expansion?.windowsByPane == [[], ["Solo"]])
+        #expect(expansion?.focusedPaneIndex == 1)
+    }
+
+    @Test func expandingFullScreenIgnoresVerticalMovesAndInvalidIndex() {
+        #expect(
+            PaneMove.expandFullScreenToSplit2(
+                windows: ["A", "B"],
+                movingIndex: 0,
+                direction: .up
+            ) == nil
+        )
+        #expect(
+            PaneMove.expandFullScreenToSplit2(
+                windows: ["A"],
+                movingIndex: 3,
+                direction: .right
+            ) == nil
+        )
+    }
+
     @Test func split2OnlyOffersHorizontalNeighbors() {
         #expect(PaneMove.availableDirections(from: 0, kind: .split2) == [.right])
         #expect(PaneMove.availableDirections(from: 1, kind: .split2) == [.left])

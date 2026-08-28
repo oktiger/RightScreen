@@ -46,7 +46,7 @@ enum HotKeySettingsSection: String, CaseIterable, Sendable {
 
     var footer: String? {
         switch self {
-        case .moveWindow: "仅在 Tab Mode 中生效，效果与 Tab 栏箭头相同。"
+        case .moveWindow: "仅在 Tab Mode 中生效，效果与 Tab 栏箭头相同。全屏 1 格时，左右快捷键会切换到左右二分。"
         case .layout: nil
         }
     }

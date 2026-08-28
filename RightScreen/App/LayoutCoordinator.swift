@@ -631,8 +631,18 @@ final class LayoutCoordinator {
         inPane sourcePaneIndex: Int,
         direction: PaneMoveDirection
     ) {
+        guard let session else { return }
+        if session.kind == .fullScreen {
+            expandFullScreenToSplit2(
+                movingTab: tabIndex,
+                inPane: sourcePaneIndex,
+                direction: direction,
+                in: session
+            )
+            return
+        }
+
         guard
-            let session,
             let targetPaneIndex = PaneMove.destinationPaneIndex(
                 from: sourcePaneIndex,
                 direction: direction,
@@ -643,6 +653,76 @@ final class LayoutCoordinator {
         }
 
         moveTab(tabIndex, fromPane: sourcePaneIndex, toPane: targetPaneIndex, in: session)
+    }
+
+    /// 全屏 1 格时左右快捷键切到左右二分：当前 Tab 落到对应侧，其余窗口留在对侧。
+    private func expandFullScreenToSplit2(
+        movingTab tabIndex: Int,
+        inPane sourcePaneIndex: Int,
+        direction: PaneMoveDirection,
+        in session: LayoutSession
+    ) {
+        guard
+            sourcePaneIndex == 0,
+            session.panes.indices.contains(0)
+        else {
+            return
+        }
+
+        let sourcePane = session.panes[0]
+        guard
+            let expansion = PaneMove.expandFullScreenToSplit2(
+                windows: sourcePane.windows,
+                movingIndex: tabIndex,
+                direction: direction
+            )
+        else {
+            return
+        }
+
+        let movedWindow = sourcePane.windows[tabIndex]
+        let remainingHistory = PaneTabHistory.removing(
+            movedWindow.windowID,
+            from: sourcePane.activationHistory
+        )
+        let remainingIDs = expansion.windowsByPane[1 - expansion.focusedPaneIndex].map(\.windowID)
+        let remainingSelected = PaneTabHistory.selectedIndex(
+            remainingIDs: remainingIDs,
+            history: remainingHistory,
+            removedIndex: tabIndex
+        )
+        let geometries = LayoutEngine.geometries(for: .split2, in: session.screen.visibleFrame)
+
+        for panel in session.panels.compactMap({ $0 }) {
+            panel.orderOut(nil)
+            panel.close()
+        }
+
+        session.kind = .split2
+        session.panes = geometries.enumerated().map { paneIndex, geometry in
+            let windows = expansion.windowsByPane[paneIndex]
+            let isFocusedPane = paneIndex == expansion.focusedPaneIndex
+            return PaneState(
+                geometry: geometry,
+                windows: windows,
+                selectedIndex: isFocusedPane ? 0 : remainingSelected,
+                activationHistory: isFocusedPane
+                    ? (windows.first.map { [$0.windowID] } ?? [])
+                    : remainingHistory
+            )
+        }
+        session.panels = Array(repeating: nil, count: session.panes.count)
+        session.lastFocusedPaneIndex = expansion.focusedPaneIndex
+
+        applyInitialLayout(session)
+        if let focused = session.panes[expansion.focusedPaneIndex].windows.first {
+            windowController.raise(focused)
+        }
+        createTabBars(for: session)
+        dropTracker.updatePaneFrames(session.panes.map(\.geometry.paneFrame))
+        for window in session.panes.flatMap(\.windows) {
+            scheduleFrameEnforcement(for: window.windowID)
+        }
     }
 
     /// Tab 栏箭头和跨格拖放共用同一份换格语义，保证 MRU、焦点恢复与窗口 frame 一致。

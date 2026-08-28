@@ -39,7 +39,7 @@ enum PaneMove {
     ) -> Int? {
         switch kind {
         case .fullScreen:
-            // 单格无邻格，不提供移动。
+            // 单格无邻格。左右快捷键不走换格，而是由 expandFullScreenToSplit2 切到二分。
             return nil
 
         case .split2:
@@ -105,5 +105,27 @@ enum PaneMove {
             default: return nil
             }
         }
+    }
+
+    /// 全屏单格按左右方向展开为二分：当前 Tab 落到目标侧，其余窗口保持原顺序留在对侧。
+    static func expandFullScreenToSplit2<T>(
+        windows: [T],
+        movingIndex: Int,
+        direction: PaneMoveDirection
+    ) -> (windowsByPane: [[T]], focusedPaneIndex: Int)? {
+        guard windows.indices.contains(movingIndex) else { return nil }
+        let focusedPaneIndex: Int
+        switch direction {
+        case .left: focusedPaneIndex = 0
+        case .right: focusedPaneIndex = 1
+        case .up, .down: return nil
+        }
+
+        var remaining = windows
+        let moved = remaining.remove(at: movingIndex)
+        var panes: [[T]] = [[], []]
+        panes[focusedPaneIndex] = [moved]
+        panes[1 - focusedPaneIndex] = remaining
+        return (panes, focusedPaneIndex)
     }
 }
