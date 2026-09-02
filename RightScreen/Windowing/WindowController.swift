@@ -4,6 +4,12 @@ import CoreGraphics
 
 @MainActor
 final class WindowController {
+    private static let closeRetryDelays: [Duration] = [
+        .zero,
+        .milliseconds(50),
+        .milliseconds(150)
+    ]
+
     @discardableResult
     func setAccessibilityFrame(_ frame: CGRect, for window: ManagedWindow) -> Bool {
         guard isAlive(window) else { return false }
@@ -69,18 +75,86 @@ final class WindowController {
                 && (focusedWindowResult == .success || mainWindowResult == .success))
     }
 
-    @discardableResult
-    func close(_ window: ManagedWindow) -> Bool {
-        guard
-            isAlive(window),
-            let value = AXHelpers.attribute(kAXCloseButtonAttribute as CFString, of: window.element),
-            CFGetTypeID(value) == AXUIElementGetTypeID()
-        else {
-            return false
+    func close(_ window: ManagedWindow) async -> WindowCloseResult {
+        for delay in Self.closeRetryDelays {
+            if delay != .zero {
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return .temporarilyUnavailable
+                }
+            }
+
+            let result = closeOnce(window)
+            if result != .temporarilyUnavailable {
+                return result
+            }
+        }
+        return .temporarilyUnavailable
+    }
+
+    private func closeOnce(_ window: ManagedWindow) -> WindowCloseResult {
+        var roleValue: CFTypeRef?
+        let roleResult = AXUIElementCopyAttributeValue(
+            window.element,
+            kAXRoleAttribute as CFString,
+            &roleValue
+        )
+        guard roleResult == .success else {
+            return WindowCloseResult.classify(
+                actionError: roleResult,
+                hasBlockingModalUI: false
+            )
+        }
+        guard roleValue != nil else { return .windowUnavailable }
+
+        let hasBlockingModalUI = hasBlockingModalUI(for: window)
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(
+            window.element,
+            kAXCloseButtonAttribute as CFString,
+            &value
+        )
+        guard copyResult == .success else {
+            return WindowCloseResult.classify(
+                actionError: copyResult,
+                hasBlockingModalUI: hasBlockingModalUI
+            )
+        }
+        guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else {
+            return hasBlockingModalUI ? .blockedByModalDialog : .unsupported
         }
 
         let closeButton = value as! AXUIElement
-        return AXUIElementPerformAction(closeButton, kAXPressAction as CFString) == .success
+        if AXHelpers.bool(kAXEnabledAttribute as CFString, of: closeButton) == false {
+            return hasBlockingModalUI ? .blockedByModalDialog : .unsupported
+        }
+
+        let actionResult = AXUIElementPerformAction(closeButton, kAXPressAction as CFString)
+        return WindowCloseResult.classify(
+            actionError: actionResult,
+            hasBlockingModalUI: hasBlockingModalUI
+        )
+    }
+
+    private func hasBlockingModalUI(for window: ManagedWindow) -> Bool {
+        if let sheets = AXHelpers.attribute(
+            "AXSheets" as CFString,
+            of: window.element
+        ) as? [AXUIElement], !sheets.isEmpty {
+            return true
+        }
+
+        let applicationElement = AXUIElementCreateApplication(window.ownerPID)
+        return AXHelpers.windows(of: applicationElement).contains { candidate in
+            guard !CFEqual(candidate, window.element) else { return false }
+            if AXHelpers.bool(kAXModalAttribute as CFString, of: candidate) == true {
+                return true
+            }
+            let subrole = AXHelpers.string(kAXSubroleAttribute as CFString, of: candidate)
+            return subrole == (kAXDialogSubrole as String)
+                || subrole == (kAXSystemDialogSubrole as String)
+        }
     }
 
     func isAlive(_ window: ManagedWindow) -> Bool {

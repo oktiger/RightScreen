@@ -44,6 +44,7 @@ final class LayoutCoordinator {
     private var reconciliationTasks: [pid_t: Task<Void, Never>] = [:]
     private var adoptionTasks: [CGWindowID: Task<Void, Never>] = [:]
     private var frameEnforcementTasks: [CGWindowID: Task<Void, Never>] = [:]
+    private var closeTasks: [CGWindowID: Task<Void, Never>] = [:]
     private var dropAdoptionTask: Task<Void, Never>?
     private var pendingPaneDrop: PendingPaneDrop?
     private var closingWindowIDs = Set<CGWindowID>()
@@ -135,6 +136,10 @@ final class LayoutCoordinator {
         reconciliationTasks.removeAll()
         cancelAllAdoptions()
         cancelAllFrameEnforcement()
+        for task in closeTasks.values {
+            task.cancel()
+        }
+        closeTasks.removeAll()
         cancelPendingDropAdoption()
         dropTracker.stop()
         closingWindowIDs.removeAll()
@@ -532,8 +537,10 @@ final class LayoutCoordinator {
 
             let closedIDs = Set(pane.windows.map(\.windowID)).subtracting(liveWindows.map(\.windowID))
             session.autoJoinedWindowIDs.subtract(closedIDs)
+            closingWindowIDs.subtract(closedIDs)
             for windowID in closedIDs {
                 cancelFrameEnforcement(for: windowID)
+                session.originalFrames.removeValue(forKey: windowID)
             }
             pane.windows = liveWindows
             pane.activationHistory.removeAll { id in
@@ -598,32 +605,66 @@ final class LayoutCoordinator {
             return
         }
 
-        var pane = session.panes[paneIndex]
-        let window = pane.windows[tabIndex]
-        guard windowController.close(window) else {
-            showMessage(title: "无法关闭窗口", message: "这个 App 不允许 RightScreen 通过辅助功能关闭该窗口。")
-            return
+        let window = session.panes[paneIndex].windows[tabIndex]
+        guard closeTasks[window.windowID] == nil else { return }
+
+        closeTasks[window.windowID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let result = await self.windowController.close(window)
+            guard !Task.isCancelled else { return }
+            self.closeTasks[window.windowID] = nil
+            self.handleCloseResult(result, for: window)
         }
+    }
 
-        closingWindowIDs.insert(window.windowID)
-        cancelFrameEnforcement(for: window.windowID)
-        session.originalFrames.removeValue(forKey: window.windowID)
-        session.autoJoinedWindowIDs.remove(window.windowID)
-        let wasSelected = tabIndex == pane.selectedIndex
-        pane.windows.remove(at: tabIndex)
-        pane.selectAfterRemoving(windowID: window.windowID, at: tabIndex)
-        session.panes[paneIndex] = pane
-
-        if wasSelected, !pane.windows.isEmpty {
-            let replacement = pane.windows[pane.selectedIndex]
-            windowController.setAppKitFrame(
-                pane.geometry.windowFrame,
-                on: session.screen,
-                for: replacement
+    private func handleCloseResult(_ result: WindowCloseResult, for window: ManagedWindow) {
+        switch result {
+        case .requested:
+            // AXPress only means macOS accepted the close request. A document with
+            // unsaved changes may still show a confirmation sheet, so retain its Tab
+            // until the window is actually destroyed.
+            closingWindowIDs.insert(window.windowID)
+            closeTasks[window.windowID] = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(200))
+                guard let self, !Task.isCancelled else { return }
+                if let session = self.session {
+                    self.removeClosedWindows(from: session)
+                }
+                if self.windowController.isAlive(window) {
+                    self.closingWindowIDs.remove(window.windowID)
+                }
+                self.closeTasks[window.windowID] = nil
+            }
+        case .windowUnavailable:
+            if let session {
+                removeClosedWindows(from: session)
+            }
+        case .blockedByModalDialog:
+            showMessage(
+                title: "请先处理对话框",
+                message: "“\(window.appName)”当前有一个打开、保存或确认对话框正在等待处理。请先完成或取消该对话框，再关闭窗口；窗口布局管理不受影响。"
             )
-            windowController.raise(replacement)
+        case .temporarilyUnavailable:
+            showMessage(
+                title: "暂时无法关闭窗口",
+                message: "macOS 辅助功能服务暂时没有响应。RightScreen 已自动重试，请稍后再试。"
+            )
+        case .accessibilityPermissionRequired:
+            showMessage(
+                title: "需要辅助功能权限",
+                message: "请在“系统设置 → 隐私与安全性 → 辅助功能”中允许 RightScreen，然后重试。"
+            )
+        case .unsupported:
+            showMessage(
+                title: "这个窗口不提供关闭控制",
+                message: "RightScreen 仍可管理它的位置和大小，但该窗口没有提供系统关闭按钮。为避免误关窗口或退出整个 App，请使用该 App 自己的关闭按钮。"
+            )
+        case .failed:
+            showMessage(
+                title: "无法关闭窗口",
+                message: "macOS 拒绝了这次关闭请求。请先切换到该窗口并处理其中的提示，然后重试。"
+            )
         }
-        createOrUpdateTabBar(forPane: paneIndex, in: session)
     }
 
     private func moveTab(
