@@ -15,10 +15,8 @@ final class PaneDropOverlayPanel: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
-        isFloatingPanel = true
-        becomesKeyOnlyIfNeeded = true
         level = .floating
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        applyOverlaySpaceBehavior()
         ignoresMouseEvents = true
         contentView = fillView
         orderOut(nil)

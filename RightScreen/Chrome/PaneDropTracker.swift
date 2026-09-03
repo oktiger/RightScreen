@@ -5,7 +5,7 @@ import AppKit
 final class PaneDropTracker {
     private static let pollInterval: TimeInterval = 1.0 / 30.0
 
-    private let overlay = PaneDropOverlayPanel()
+    private var overlay: PaneDropOverlayPanel?
     private var timer: Timer?
     private var paneFrames: [CGRect] = []
     private var isDragging = false
@@ -20,7 +20,7 @@ final class PaneDropTracker {
         self.paneFrames = paneFrames
         timer?.invalidate()
         resetDragState()
-        overlay.hideOverlay()
+        overlay?.hideOverlay()
         timer = Timer.scheduledTimer(
             timeInterval: Self.pollInterval,
             target: self,
@@ -38,7 +38,7 @@ final class PaneDropTracker {
         timer?.invalidate()
         timer = nil
         resetDragState()
-        overlay.hideOverlay()
+        destroyOverlay()
         onDropBetweenPanes = nil
     }
 
@@ -63,7 +63,7 @@ final class PaneDropTracker {
                 originPoint = location
                 originPaneIndex = NewWindowPlacement.paneIndex(containing: location, in: paneFrames)
                 highlightedPaneIndex = nil
-                overlay.hideOverlay()
+                overlay?.hideOverlay()
                 return
             }
 
@@ -77,9 +77,9 @@ final class PaneDropTracker {
             if highlight != highlightedPaneIndex {
                 highlightedPaneIndex = highlight
                 if let highlight, paneFrames.indices.contains(highlight) {
-                    overlay.show(over: paneFrames[highlight])
+                    overlayPanel().show(over: paneFrames[highlight])
                 } else {
-                    overlay.hideOverlay()
+                    overlay?.hideOverlay()
                 }
             }
             return
@@ -93,11 +93,26 @@ final class PaneDropTracker {
                 paneFrames: paneFrames
             )
             resetDragState()
-            overlay.hideOverlay()
+            overlay?.hideOverlay()
             if let destination {
                 onDropBetweenPanes?(destination)
             }
         }
+    }
+
+    private func overlayPanel() -> PaneDropOverlayPanel {
+        if let overlay {
+            return overlay
+        }
+        let panel = PaneDropOverlayPanel()
+        overlay = panel
+        return panel
+    }
+
+    private func destroyOverlay() {
+        overlay?.hideOverlay()
+        overlay?.close()
+        overlay = nil
     }
 }
 

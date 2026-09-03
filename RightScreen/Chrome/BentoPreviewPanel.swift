@@ -16,7 +16,7 @@ final class BentoPreviewPanel: NSPanel {
         backgroundColor = .clear
         hasShadow = false
         level = .floating
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        applyOverlaySpaceBehavior()
         ignoresMouseEvents = true
         contentView = containerView
         orderOut(nil)

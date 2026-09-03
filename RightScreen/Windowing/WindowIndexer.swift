@@ -54,6 +54,7 @@ final class WindowIndexer {
         var axWindowsByPID: [pid_t: [AXUIElement]] = [:]
         var usedIndicesByPID: [pid_t: Set<Int>] = [:]
         var result: [ManagedWindow] = []
+        let displayBounds = NativeFullScreen.displayBounds()
 
         for record in records {
             guard let runningApp = NSRunningApplication(processIdentifier: record.ownerPID) else { continue }
@@ -63,7 +64,9 @@ final class WindowIndexer {
                 axWindows = cached
             } else {
                 let appElement = AXUIElementCreateApplication(record.ownerPID)
-                let eligible = AXHelpers.windows(of: appElement).filter(isEligibleAXWindow)
+                let eligible = AXHelpers.windows(of: appElement).filter {
+                    isEligibleAXWindow($0, displays: displayBounds)
+                }
                 axWindowsByPID[record.ownerPID] = eligible
                 axWindows = eligible
             }
@@ -131,7 +134,7 @@ final class WindowIndexer {
         )
     }
 
-    private func isEligibleAXWindow(_ element: AXUIElement) -> Bool {
+    private func isEligibleAXWindow(_ element: AXUIElement, displays: [CGRect]) -> Bool {
         let role = AXHelpers.string(kAXRoleAttribute as CFString, of: element)
         let subrole = AXHelpers.string(kAXSubroleAttribute as CFString, of: element)
         guard role == (kAXWindowRole as String) else { return false }
@@ -150,7 +153,10 @@ final class WindowIndexer {
 
         guard AXHelpers.bool(kAXModalAttribute as CFString, of: element) != true else { return false }
         guard AXHelpers.bool(kAXMinimizedAttribute as CFString, of: element) != true else { return false }
-        guard AXHelpers.bool("AXFullScreen" as CFString, of: element) != true else { return false }
+        guard let axFrame = AXHelpers.frame(of: element) else { return false }
+        guard !NativeFullScreen.isActive(element: element, frame: axFrame, displays: displays) else {
+            return false
+        }
 
         // Chrome/Finder can briefly omit AXSubrole while creating a real window.
         // In that ambiguous case, require the capabilities of an independent window;
@@ -167,7 +173,7 @@ final class WindowIndexer {
 
         // AXUIElementIsAttributeSettable can transiently return cannotComplete for Chrome
         // and Finder. The controller remains the single place that attempts the mutation.
-        return AXHelpers.frame(of: element) != nil
+        return true
     }
 
     private func hasStandardWindowControl(_ element: AXUIElement) -> Bool {

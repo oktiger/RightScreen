@@ -244,6 +244,9 @@ final class LayoutCoordinator {
     private func refreshBentoSession(_ session: BentoSession, discoverNewWindows: Bool) {
         guard !session.isDraggingDivider else { return }
 
+        releaseNativeFullScreenWindows(from: session)
+        guard bentoSession != nil else { return }
+
         let previousValues = BentoEngine.leafValues(session.tree)
         let liveWindows = previousValues.filter(windowController.isAlive)
         if liveWindows.count != previousValues.count {
@@ -269,6 +272,8 @@ final class LayoutCoordinator {
     }
 
     private func addNewWindowToBento(_ window: ManagedWindow, session: BentoSession) {
+        guard !windowController.isNativeFullScreen(window) else { return }
+
         var windows = BentoEngine.leafValues(session.tree)
         guard
             !windows.contains(where: { $0.windowID == window.windowID }),
@@ -312,7 +317,11 @@ final class LayoutCoordinator {
         }
     }
 
-    private func createOrUpdateTabBar(forPane paneIndex: Int, in session: LayoutSession) {
+    private func createOrUpdateTabBar(
+        forPane paneIndex: Int,
+        in session: LayoutSession,
+        bringToFront: Bool = true
+    ) {
         let pane = session.panes[paneIndex]
         guard !pane.windows.isEmpty else {
             session.panels[paneIndex]?.orderOut(nil)
@@ -326,7 +335,9 @@ final class LayoutCoordinator {
                 pane.windows.map(makeTabPresentation),
                 selectedIndex: pane.selectedIndex
             )
-            panel.orderFrontRegardless()
+            if bringToFront {
+                panel.orderFrontRegardless()
+            }
         } else {
             let panel = PaneTabBarPanel(
                 frame: pane.geometry.tabBarFrame,
@@ -346,7 +357,9 @@ final class LayoutCoordinator {
                 }
             )
             session.panels[paneIndex] = panel
-            panel.orderFrontRegardless()
+            if bringToFront {
+                panel.orderFrontRegardless()
+            }
         }
     }
 
@@ -386,11 +399,18 @@ final class LayoutCoordinator {
     }
 
     private func refreshFocusedTab() {
-        guard let session else { return }
-        synchronizeTabSelectionWithSystemFocus(in: session)
+        if let session {
+            releaseNativeFullScreenWindows(from: session)
+            guard self.session != nil else { return }
+            synchronizeTabSelectionWithSystemFocus(in: session)
+        } else if let bentoSession {
+            releaseNativeFullScreenWindows(from: bentoSession)
+        }
     }
 
     private func refreshTabSession(_ session: LayoutSession, discoverNewWindows: Bool) {
+        releaseNativeFullScreenWindows(from: session)
+        guard self.session != nil else { return }
         removeClosedWindows(from: session)
         synchronizeTabSelectionWithSystemFocus(in: session)
         guard discoverNewWindows else { return }
@@ -485,6 +505,8 @@ final class LayoutCoordinator {
     }
 
     private func addNewWindow(_ window: ManagedWindow, to session: LayoutSession) {
+        guard !windowController.isNativeFullScreen(window) else { return }
+
         let managedWindows = session.panes.flatMap(\.windows)
         guard
             !managedWindows.contains(where: { $0.windowID == window.windowID }),
@@ -1004,6 +1026,7 @@ final class LayoutCoordinator {
             guard !Task.isCancelled, self.hasActiveLayout, self.windowController.isAlive(window) else {
                 return
             }
+            guard !self.windowController.isNativeFullScreen(window) else { return }
 
             if let session = self.session {
                 self.addNewWindow(window, to: session)
@@ -1052,6 +1075,9 @@ final class LayoutCoordinator {
                 guard let window = pane.windows.first(where: { $0.windowID == windowID }) else {
                     continue
                 }
+                if windowController.isNativeFullScreen(window) {
+                    return true
+                }
                 let expected = pane.geometry.windowFrame
                 windowController.setAppKitFrame(expected, on: session.screen, for: window)
                 let expectedAX = ScreenFrameConversion.flippingY(
@@ -1067,6 +1093,9 @@ final class LayoutCoordinator {
             guard let leaf = bentoSession.leafLayouts().first(where: {
                 $0.value.windowID == windowID
             }) else {
+                return true
+            }
+            if windowController.isNativeFullScreen(leaf.value) {
                 return true
             }
             windowController.setAppKitFrame(leaf.frame, on: bentoSession.screen, for: leaf.value)
@@ -1090,6 +1119,85 @@ final class LayoutCoordinator {
             task.cancel()
         }
         frameEnforcementTasks.removeAll()
+    }
+
+    /// 原生全屏会开新 Space。接管中的窗口一旦进入全屏就立刻放手，
+    /// 且不要 raise / 改 frame，否则会打断过渡并弹出 Mission Control。
+    private func releaseNativeFullScreenWindows(from session: LayoutSession) {
+        let displays = NativeFullScreen.displayBounds()
+        var didRelease = false
+
+        for paneIndex in session.panes.indices {
+            var pane = session.panes[paneIndex]
+            let remaining = pane.windows.filter {
+                !windowController.isNativeFullScreen($0, displays: displays)
+            }
+            guard remaining.count != pane.windows.count else { continue }
+
+            didRelease = true
+            let released = pane.windows.filter { window in
+                !remaining.contains(where: { $0.windowID == window.windowID })
+            }
+            forgetReleasedWindows(released, originalFrames: &session.originalFrames)
+            session.autoJoinedWindowIDs.subtract(Set(released.map(\.windowID)))
+
+            let selectedID = pane.windows.indices.contains(pane.selectedIndex)
+                ? pane.windows[pane.selectedIndex].windowID
+                : nil
+            pane.windows = remaining
+            pane.activationHistory.removeAll { id in
+                !remaining.contains(where: { $0.windowID == id })
+            }
+            if let selectedID, let retainedIndex = remaining.firstIndex(where: { $0.windowID == selectedID }) {
+                pane.selectedIndex = retainedIndex
+            } else {
+                pane.selectedIndex = PaneTabHistory.selectedIndex(
+                    remainingIDs: remaining.map(\.windowID),
+                    history: pane.activationHistory,
+                    removedIndex: pane.selectedIndex
+                )
+            }
+            session.panes[paneIndex] = pane
+            createOrUpdateTabBar(forPane: paneIndex, in: session, bringToFront: false)
+        }
+
+        if didRelease, session.panes.allSatisfy(\.windows.isEmpty) {
+            exitLayout()
+        }
+    }
+
+    private func releaseNativeFullScreenWindows(from session: BentoSession) {
+        let displays = NativeFullScreen.displayBounds()
+        let values = BentoEngine.leafValues(session.tree)
+        let remaining = values.filter {
+            !windowController.isNativeFullScreen($0, displays: displays)
+        }
+        guard remaining.count != values.count else { return }
+
+        let released = values.filter { window in
+            !remaining.contains(where: { $0.windowID == window.windowID })
+        }
+        forgetReleasedWindows(released, originalFrames: &session.originalFrames)
+
+        if remaining.isEmpty {
+            exitLayout()
+            return
+        }
+        guard let rebuilt = BentoEngine.buildTree(remaining) else { return }
+        session.tree = rebuilt
+        session.dividerController?.update(dividers: session.dividerLayouts())
+    }
+
+    private func forgetReleasedWindows(
+        _ windows: [ManagedWindow],
+        originalFrames: inout [CGWindowID: CGRect]
+    ) {
+        for window in windows {
+            cancelFrameEnforcement(for: window.windowID)
+            adoptionTasks[window.windowID]?.cancel()
+            adoptionTasks[window.windowID] = nil
+            originalFrames.removeValue(forKey: window.windowID)
+        }
     }
 
     // MARK: - Shared helpers
@@ -1140,6 +1248,7 @@ final class LayoutCoordinator {
         for window in windows {
             guard
                 windowController.isAlive(window),
+                !windowController.isNativeFullScreen(window),
                 let originalFrame = originalFrames[window.windowID]
             else {
                 continue

@@ -77,7 +77,7 @@ private final class BentoDividerHandlePanel: NSPanel {
         backgroundColor = .clear
         hasShadow = false
         level = .floating
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        applyOverlaySpaceBehavior()
         contentView = handleView
         ignoresMouseEvents = false
     }

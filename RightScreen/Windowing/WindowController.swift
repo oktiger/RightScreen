@@ -10,9 +10,18 @@ final class WindowController {
         .milliseconds(150)
     ]
 
+    func isNativeFullScreen(_ window: ManagedWindow, displays: [CGRect] = NativeFullScreen.displayBounds()) -> Bool {
+        NativeFullScreen.isActive(
+            element: window.element,
+            frame: AXHelpers.frame(of: window.element),
+            displays: displays
+        )
+    }
+
     @discardableResult
     func setAccessibilityFrame(_ frame: CGRect, for window: ManagedWindow) -> Bool {
         guard isAlive(window) else { return false }
+        guard !isNativeFullScreen(window) else { return false }
 
         let positionResult = AXHelpers.set(
             point: frame.origin,
@@ -40,6 +49,7 @@ final class WindowController {
     @discardableResult
     func raise(_ window: ManagedWindow) -> Bool {
         guard isAlive(window) else { return false }
+        guard !isNativeFullScreen(window) else { return false }
 
         // AXRaise alone only changes the order inside some applications. When the
         // target belongs to an inactive app, its window can remain behind the
@@ -191,6 +201,14 @@ final class WindowController {
         }
 
         let focusedWindowElement = focusedElement as! AXUIElement
+        if NativeFullScreen.isActive(
+            element: focusedWindowElement,
+            frame: AXHelpers.frame(of: focusedWindowElement),
+            displays: NativeFullScreen.displayBounds()
+        ) {
+            return nil
+        }
+
         let candidates = windows.filter { $0.ownerPID == frontmostPID }
         if let exact = candidates.first(where: { CFEqual($0.element, focusedWindowElement) }) {
             return exact

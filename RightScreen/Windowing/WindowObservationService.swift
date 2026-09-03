@@ -87,6 +87,12 @@ final class WindowObservationService: NSObject {
             name: NSWorkspace.didActivateApplicationNotification,
             object: nil
         )
+        workspaceCenter.addObserver(
+            self,
+            selector: #selector(activeSpaceDidChange(_:)),
+            name: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil
+        )
 
         for application in NSWorkspace.shared.runningApplications {
             register(application, reconcileAfterRegistration: false)
@@ -240,5 +246,9 @@ final class WindowObservationService: NSObject {
             register(application, reconcileAfterRegistration: true)
         }
         onFocusChanged()
+    }
+
+    @objc private func activeSpaceDidChange(_ notification: Notification) {
+        onWindowStateChanged()
     }
 }

@@ -468,10 +468,8 @@ final class PaneTabBarPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 
     private func configurePanel() {
-        isFloatingPanel = true
-        becomesKeyOnlyIfNeeded = true
         level = .floating
-        collectionBehavior = [.ignoresCycle]
+        applyOverlaySpaceBehavior()
         hasShadow = false
         isOpaque = false
         backgroundColor = .clear

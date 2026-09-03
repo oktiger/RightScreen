@@ -31,6 +31,9 @@ final class HotKeySettingsWindowController: NSWindowController {
         window.contentViewController = hosting
         window.isReleasedWhenClosed = false
         window.level = .floating
+        window.isExcludedFromWindowsMenu = true
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .ignoresCycle]
+        window.orderOut(nil)
 
         super.init(window: window)
         window.delegate = self
