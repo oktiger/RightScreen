@@ -17,7 +17,8 @@ struct BentoTilePresentation: Equatable {
 
 @MainActor
 final class BentoSession {
-    let screen: NSScreen
+    var screen: NSScreen
+    var displayID: CGDirectDisplayID
     let gap: CGFloat
     var originalFrames: [CGWindowID: CGRect]
     var tree: BentoNode<ManagedWindow>
@@ -36,6 +37,7 @@ final class BentoSession {
         gap: CGFloat = BentoEngine.defaultGap
     ) {
         self.screen = screen
+        self.displayID = ScreenIdentity.displayID(of: screen)
         self.gap = gap
         self.tree = tree
         originalFrames = Dictionary(uniqueKeysWithValues: windows.map { ($0.windowID, $0.frame) })

@@ -42,8 +42,8 @@ final class WindowController {
     }
 
     @discardableResult
-    func setAppKitFrame(_ frame: CGRect, on screen: NSScreen, for window: ManagedWindow) -> Bool {
-        setAccessibilityFrame(accessibilityFrame(from: frame, mainScreen: screen), for: window)
+    func setAppKitFrame(_ frame: CGRect, for window: ManagedWindow) -> Bool {
+        setAccessibilityFrame(ScreenIdentity.convertFrame(frame), for: window)
     }
 
     @discardableResult
@@ -227,9 +227,5 @@ final class WindowController {
         }
 
         return candidates.count == 1 ? candidates[0] : nil
-    }
-
-    private func accessibilityFrame(from appKitFrame: CGRect, mainScreen: NSScreen) -> CGRect {
-        ScreenFrameConversion.flippingY(appKitFrame, relativeTo: mainScreen.frame)
     }
 }

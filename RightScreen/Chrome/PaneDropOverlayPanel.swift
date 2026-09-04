@@ -2,7 +2,7 @@ import AppKit
 
 /// Tab Mode 拖入格位时的淡蓝半透明蒙版。必须忽略鼠标，否则会抢走 Chrome 松手落点。
 @MainActor
-final class PaneDropOverlayPanel: NSPanel {
+final class PaneDropOverlayPanel: OverlayPanel {
     private let fillView = PaneDropOverlayView()
 
     init() {

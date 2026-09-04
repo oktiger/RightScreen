@@ -2,7 +2,7 @@ import AppKit
 
 /// 拖拽分隔条时的玻璃预览：每格深灰底 + 居中 App Icon + 名称 + 尺寸。
 @MainActor
-final class BentoPreviewPanel: NSPanel {
+final class BentoPreviewPanel: OverlayPanel {
     private let containerView = BentoPreviewContainerView()
 
     init(screenFrame: CGRect) {

@@ -36,6 +36,13 @@ final class LayoutCoordinator {
         .milliseconds(800),
         .milliseconds(1300)
     ]
+    /// 插拔显示器会连发多次通知，坐标空间也要过一会儿才稳定。
+    private static let screenRelayoutDelays: [Duration] = [
+        .zero,
+        .milliseconds(80),
+        .milliseconds(250),
+        .milliseconds(700)
+    ]
 
     private let windowIndexer = WindowIndexer()
     private let windowController = WindowController()
@@ -46,8 +53,19 @@ final class LayoutCoordinator {
     private var frameEnforcementTasks: [CGWindowID: Task<Void, Never>] = [:]
     private var closeTasks: [CGWindowID: Task<Void, Never>] = [:]
     private var dropAdoptionTask: Task<Void, Never>?
+    private var screenRelayoutTask: Task<Void, Never>?
     private var pendingPaneDrop: PendingPaneDrop?
     private var closingWindowIDs = Set<CGWindowID>()
+
+    init() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(screenParametersDidChange),
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
+    }
+
     private lazy var windowObservationService = WindowObservationService(
         onWindowCreated: { [weak self] pid in
             self?.scheduleWindowReconciliation(for: pid)
@@ -141,6 +159,8 @@ final class LayoutCoordinator {
         }
         closeTasks.removeAll()
         cancelPendingDropAdoption()
+        screenRelayoutTask?.cancel()
+        screenRelayoutTask = nil
         dropTracker.stop()
         closingWindowIDs.removeAll()
 
@@ -188,7 +208,7 @@ final class LayoutCoordinator {
 
     private func applyBentoFrames(_ session: BentoSession) {
         for leaf in session.leafLayouts() {
-            windowController.setAppKitFrame(leaf.frame, on: session.screen, for: leaf.value)
+            windowController.setAppKitFrame(leaf.frame, for: leaf.value)
             windowController.raise(leaf.value)
         }
     }
@@ -296,11 +316,7 @@ final class LayoutCoordinator {
     private func applyInitialLayout(_ session: LayoutSession) {
         for (paneIndex, pane) in session.panes.enumerated() where !pane.windows.isEmpty {
             for window in pane.windows {
-                windowController.setAppKitFrame(
-                    pane.geometry.windowFrame,
-                    on: session.screen,
-                    for: window
-                )
+                windowController.setAppKitFrame(pane.geometry.windowFrame, for: window)
             }
 
             if pane.windows.indices.contains(pane.selectedIndex) {
@@ -333,7 +349,8 @@ final class LayoutCoordinator {
         if let panel = session.panels[paneIndex] {
             panel.updateTabs(
                 pane.windows.map(makeTabPresentation),
-                selectedIndex: pane.selectedIndex
+                selectedIndex: pane.selectedIndex,
+                frame: pane.geometry.tabBarFrame
             )
             if bringToFront {
                 panel.orderFrontRegardless()
@@ -516,10 +533,7 @@ final class LayoutCoordinator {
         }
 
         let latestFrame = AXHelpers.frame(of: window.element) ?? window.frame
-        let appKitFrame = ScreenFrameConversion.flippingY(
-            latestFrame,
-            relativeTo: session.screen.frame
-        )
+        let appKitFrame = ScreenIdentity.convertFrame(latestFrame)
         let paneIndex: Int
         if let pendingPaneDrop, session.panes.indices.contains(pendingPaneDrop.paneIndex) {
             paneIndex = pendingPaneDrop.paneIndex
@@ -541,7 +555,7 @@ final class LayoutCoordinator {
         pane.selectWindow(at: pane.windows.count - 1)
         session.panes[paneIndex] = pane
 
-        windowController.setAppKitFrame(pane.geometry.windowFrame, on: session.screen, for: window)
+        windowController.setAppKitFrame(pane.geometry.windowFrame, for: window)
         windowController.raise(window)
         session.lastFocusedPaneIndex = paneIndex
         createOrUpdateTabBar(forPane: paneIndex, in: session)
@@ -579,11 +593,7 @@ final class LayoutCoordinator {
                 if let selected = liveWindows.indices.contains(pane.selectedIndex)
                     ? liveWindows[pane.selectedIndex]
                     : nil {
-                    windowController.setAppKitFrame(
-                        pane.geometry.windowFrame,
-                        on: session.screen,
-                        for: selected
-                    )
+                    windowController.setAppKitFrame(pane.geometry.windowFrame, for: selected)
                     windowController.raise(selected)
                 }
             }
@@ -603,11 +613,7 @@ final class LayoutCoordinator {
 
         let pane = session.panes[paneIndex]
         let selectedWindow = pane.windows[selectedIndex]
-        windowController.setAppKitFrame(
-            pane.geometry.windowFrame,
-            on: session.screen,
-            for: selectedWindow
-        )
+        windowController.setAppKitFrame(pane.geometry.windowFrame, for: selectedWindow)
         guard windowController.raise(selectedWindow) else {
             createOrUpdateTabBar(forPane: paneIndex, in: session)
             return
@@ -754,7 +760,10 @@ final class LayoutCoordinator {
             history: remainingHistory,
             removedIndex: tabIndex
         )
-        let geometries = LayoutEngine.geometries(for: .split2, in: session.screen.visibleFrame)
+        let geometries = LayoutEngine.geometries(
+            for: .split2,
+            in: resolvedScreen(for: session).visibleFrame
+        )
 
         for panel in session.panels.compactMap({ $0 }) {
             panel.orderOut(nil)
@@ -819,21 +828,13 @@ final class LayoutCoordinator {
         session.panes[sourcePaneIndex] = sourcePane
         session.panes[targetPaneIndex] = targetPane
 
-        windowController.setAppKitFrame(
-            targetPane.geometry.windowFrame,
-            on: session.screen,
-            for: window
-        )
+        windowController.setAppKitFrame(targetPane.geometry.windowFrame, for: window)
         windowController.raise(window)
         scheduleFrameEnforcement(for: window.windowID)
 
         if !sourcePane.windows.isEmpty {
             let replacement = sourcePane.windows[sourcePane.selectedIndex]
-            windowController.setAppKitFrame(
-                sourcePane.geometry.windowFrame,
-                on: session.screen,
-                for: replacement
-            )
+            windowController.setAppKitFrame(sourcePane.geometry.windowFrame, for: replacement)
             windowController.raise(replacement)
             if restoreSourceFocus {
                 session.lastFocusedPaneIndex = sourcePaneIndex
@@ -902,9 +903,8 @@ final class LayoutCoordinator {
             else {
                 continue
             }
-            let expectedAXFrame = ScreenFrameConversion.flippingY(
-                session.panes[membership.paneIndex].geometry.windowFrame,
-                relativeTo: session.screen.frame
+            let expectedAXFrame = ScreenIdentity.convertFrame(
+                session.panes[membership.paneIndex].geometry.windowFrame
             )
             guard
                 let actualAXFrame = AXHelpers.frame(of: candidate.element),
@@ -916,7 +916,6 @@ final class LayoutCoordinator {
             if membership.paneIndex == destination.targetPaneIndex {
                 windowController.setAppKitFrame(
                     session.panes[membership.paneIndex].geometry.windowFrame,
-                    on: session.screen,
                     for: candidate
                 )
                 windowController.raise(candidate)
@@ -1079,12 +1078,11 @@ final class LayoutCoordinator {
                     return true
                 }
                 let expected = pane.geometry.windowFrame
-                windowController.setAppKitFrame(expected, on: session.screen, for: window)
-                let expectedAX = ScreenFrameConversion.flippingY(
-                    expected,
-                    relativeTo: session.screen.frame
+                windowController.setAppKitFrame(expected, for: window)
+                return windowController.frameMatches(
+                    window,
+                    accessibilityFrame: ScreenIdentity.convertFrame(expected)
                 )
-                return windowController.frameMatches(window, accessibilityFrame: expectedAX)
             }
             return true
         }
@@ -1098,12 +1096,11 @@ final class LayoutCoordinator {
             if windowController.isNativeFullScreen(leaf.value) {
                 return true
             }
-            windowController.setAppKitFrame(leaf.frame, on: bentoSession.screen, for: leaf.value)
-            let expectedAX = ScreenFrameConversion.flippingY(
-                leaf.frame,
-                relativeTo: bentoSession.screen.frame
+            windowController.setAppKitFrame(leaf.frame, for: leaf.value)
+            return windowController.frameMatches(
+                leaf.value,
+                accessibilityFrame: ScreenIdentity.convertFrame(leaf.frame)
             )
-            return windowController.frameMatches(leaf.value, accessibilityFrame: expectedAX)
         }
 
         return true
@@ -1219,6 +1216,121 @@ final class LayoutCoordinator {
             return true
         }
         return false
+    }
+
+    @objc private func screenParametersDidChange(_ notification: Notification) {
+        scheduleScreenRelayout()
+    }
+
+    private func scheduleScreenRelayout() {
+        guard hasActiveLayout else { return }
+        screenRelayoutTask?.cancel()
+        screenRelayoutTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for delay in Self.screenRelayoutDelays {
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled, self.hasActiveLayout else { return }
+                self.relayoutForCurrentScreens()
+            }
+        }
+    }
+
+    private func relayoutForCurrentScreens() {
+        if let session {
+            relayoutTabSession(session)
+        } else if let bentoSession {
+            relayoutBentoSession(bentoSession)
+        }
+    }
+
+    private func relayoutTabSession(_ session: LayoutSession) {
+        guard !dropTracker.isTrackingMouseDrag else { return }
+
+        let windows = session.panes.flatMap(\.windows)
+        let visibleFrame = resolvedScreen(for: session, windows: windows).visibleFrame
+        guard visibleFrame.width > 1, visibleFrame.height > 1 else { return }
+
+        let geometries = LayoutEngine.geometries(for: session.kind, in: visibleFrame)
+        guard geometries.count == session.panes.count else { return }
+
+        for paneIndex in session.panes.indices {
+            session.panes[paneIndex].geometry = geometries[paneIndex]
+            let pane = session.panes[paneIndex]
+            for window in pane.windows {
+                windowController.setAppKitFrame(pane.geometry.windowFrame, for: window)
+            }
+            createOrUpdateTabBar(forPane: paneIndex, in: session)
+        }
+        dropTracker.updatePaneFrames(session.panes.map(\.geometry.paneFrame))
+        for window in windows {
+            scheduleFrameEnforcement(for: window.windowID)
+        }
+    }
+
+    private func relayoutBentoSession(_ session: BentoSession) {
+        guard !session.isDraggingDivider else { return }
+
+        let windows = BentoEngine.leafValues(session.tree)
+        _ = resolvedScreen(for: session, windows: windows)
+        guard session.rootFrame.width > 1, session.rootFrame.height > 1 else { return }
+
+        applyBentoFrames(session)
+        session.dividerController?.update(dividers: session.dividerLayouts())
+        for window in windows {
+            scheduleFrameEnforcement(for: window.windowID)
+        }
+    }
+
+    @discardableResult
+    private func resolvedScreen(
+        for session: LayoutSession,
+        windows: [ManagedWindow]? = nil
+    ) -> NSScreen {
+        let liveWindows = windows ?? session.panes.flatMap(\.windows)
+        let screen = resolveLayoutScreen(
+            preferredDisplayID: session.displayID,
+            windows: liveWindows
+        ) ?? session.screen
+        session.screen = screen
+        session.displayID = ScreenIdentity.displayID(of: screen)
+        return screen
+    }
+
+    @discardableResult
+    private func resolvedScreen(
+        for session: BentoSession,
+        windows: [ManagedWindow]? = nil
+    ) -> NSScreen {
+        let liveWindows = windows ?? BentoEngine.leafValues(session.tree)
+        let screen = resolveLayoutScreen(
+            preferredDisplayID: session.displayID,
+            windows: liveWindows
+        ) ?? session.screen
+        session.screen = screen
+        session.displayID = ScreenIdentity.displayID(of: screen)
+        return screen
+    }
+
+    private func resolveLayoutScreen(
+        preferredDisplayID: CGDirectDisplayID,
+        windows: [ManagedWindow]
+    ) -> NSScreen? {
+        if let screen = ScreenIdentity.screen(forDisplayID: preferredDisplayID) {
+            return screen
+        }
+
+        let windowFrames = windows.compactMap { window -> CGRect? in
+            guard let axFrame = AXHelpers.frame(of: window.element) else { return nil }
+            return ScreenIdentity.convertFrame(axFrame)
+        }
+        let screens = NSScreen.screens
+        if let index = ScreenIdentity.preferredScreenIndex(
+            screenFrames: screens.map(\.frame),
+            windowFrames: windowFrames
+        ) {
+            return screens[index]
+        }
+        return NSScreen.main ?? NSScreen.screens.first
     }
 
     private func primaryScreen() -> NSScreen? {

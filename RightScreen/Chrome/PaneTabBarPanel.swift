@@ -415,7 +415,7 @@ private final class PaneTabItemView: NSView {
 }
 
 @MainActor
-final class PaneTabBarPanel: NSPanel {
+final class PaneTabBarPanel: OverlayPanel {
     private static let horizontalInset: CGFloat = 6
     private static let tabWidth: CGFloat = 154
     private static let tabSpacing: CGFloat = 4
@@ -424,7 +424,7 @@ final class PaneTabBarPanel: NSPanel {
     private let closeHandler: (Int) -> Void
     private let moveHandler: (Int, PaneMoveDirection) -> Void
     private let moveDirections: [PaneMoveDirection]
-    private let availableFrame: CGRect
+    private var availableFrame: CGRect
     private let scrollView = NSScrollView()
     private let tabStripView = NSView()
     private var tabItemViews: [PaneTabItemView] = []
@@ -515,19 +515,7 @@ final class PaneTabBarPanel: NSPanel {
 
         let stripWidth = CGFloat(tabs.count) * Self.tabWidth
             + CGFloat(max(0, tabs.count - 1)) * Self.tabSpacing
-        let panelWidth = min(
-            availableFrame.width,
-            stripWidth + Self.horizontalInset * 2
-        )
-        setFrame(
-            CGRect(
-                x: availableFrame.minX,
-                y: availableFrame.minY,
-                width: panelWidth,
-                height: availableFrame.height
-            ),
-            display: true
-        )
+        pinToAvailableFrame(stripWidth: stripWidth)
         scrollView.frame = contentView?.bounds.insetBy(dx: Self.horizontalInset, dy: 4) ?? .zero
         scrollView.hasHorizontalScroller = stripWidth > scrollView.bounds.width
         tabStripView.frame = CGRect(
@@ -547,15 +535,18 @@ final class PaneTabBarPanel: NSPanel {
         }
     }
 
-    func updateTabs(_ tabs: [PaneTabPresentation], selectedIndex: Int) {
+    func updateTabs(_ tabs: [PaneTabPresentation], selectedIndex: Int, frame: CGRect) {
+        let sizeChanged = availableFrame.size != frame.size
+        availableFrame = frame
         let tabsChanged = self.tabs != tabs
         self.tabs = tabs
         self.selectedIndex = tabs.indices.contains(selectedIndex) ? selectedIndex : -1
-        if tabsChanged || tabItemViews.count != tabs.count {
+        if tabsChanged || tabItemViews.count != tabs.count || sizeChanged {
             rebuildTabs()
             return
         }
 
+        pinToAvailableFrame()
         for (index, item) in tabItemViews.enumerated() {
             item.updateSelection(index == self.selectedIndex)
         }
@@ -570,5 +561,25 @@ final class PaneTabBarPanel: NSPanel {
                 )
             )
         }
+    }
+
+    private func pinToAvailableFrame(stripWidth: CGFloat? = nil) {
+        let resolvedStripWidth = stripWidth ?? (
+            CGFloat(tabs.count) * Self.tabWidth
+                + CGFloat(max(0, tabs.count - 1)) * Self.tabSpacing
+        )
+        let panelWidth = min(
+            availableFrame.width,
+            resolvedStripWidth + Self.horizontalInset * 2
+        )
+        setFrame(
+            CGRect(
+                x: availableFrame.minX,
+                y: availableFrame.minY,
+                width: panelWidth,
+                height: availableFrame.height
+            ),
+            display: true
+        )
     }
 }

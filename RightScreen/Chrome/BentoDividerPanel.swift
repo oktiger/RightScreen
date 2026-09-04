@@ -54,7 +54,7 @@ final class BentoDividerController {
 }
 
 @MainActor
-private final class BentoDividerHandlePanel: NSPanel {
+private final class BentoDividerHandlePanel: OverlayPanel {
     private let handleView: BentoDividerHandleView
 
     init(

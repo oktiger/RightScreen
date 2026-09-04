@@ -2,7 +2,7 @@ import AppKit
 import CoreGraphics
 
 struct PaneState {
-    let geometry: PaneGeometry
+    var geometry: PaneGeometry
     var windows: [ManagedWindow]
     var selectedIndex: Int
     /// 最近激活的窗口 ID，队首是当前工作窗口。
@@ -35,7 +35,8 @@ struct PaneState {
 @MainActor
 final class LayoutSession {
     var kind: LayoutKind
-    let screen: NSScreen
+    var screen: NSScreen
+    var displayID: CGDirectDisplayID
     var originalFrames: [CGWindowID: CGRect]
     var panes: [PaneState]
     var panels: [PaneTabBarPanel?]
@@ -51,6 +52,7 @@ final class LayoutSession {
     ) {
         self.kind = kind
         self.screen = screen
+        self.displayID = ScreenIdentity.displayID(of: screen)
         originalFrames = Dictionary(uniqueKeysWithValues: windowsByPane.flatMap { $0 }.map {
             ($0.windowID, $0.frame)
         })
