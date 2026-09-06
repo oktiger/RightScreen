@@ -51,20 +51,19 @@ final class WindowController {
         guard isAlive(window) else { return false }
         guard !isNativeFullScreen(window) else { return false }
 
-        // AXRaise alone only changes the order inside some applications. When the
-        // target belongs to an inactive app, its window can remain behind the
-        // currently active app even though AX reports success.
-        let runningApplication = NSRunningApplication(processIdentifier: window.ownerPID)
-        if runningApplication?.isActive != true {
-            _ = runningApplication?.activate()
-        }
+        let ordered = orderFrontWithinApplication(window)
 
+        // `NSRunningApplication.activate()` and `kAXFrontmostAttribute` bring every
+        // window of that process forward. Chrome then covers the other pane.
+        // Activate with "front window only" after this window is already the app's
+        // front window, so siblings stay where they were.
+        let activated = ProcessActivation.bringFrontWindowOnly(pid: window.ownerPID)
+
+        return ordered || activated
+    }
+
+    private func orderFrontWithinApplication(_ window: ManagedWindow) -> Bool {
         let applicationElement = AXUIElementCreateApplication(window.ownerPID)
-        let frontmostResult = AXUIElementSetAttributeValue(
-            applicationElement,
-            kAXFrontmostAttribute as CFString,
-            kCFBooleanTrue
-        )
         let focusedWindowResult = AXUIElementSetAttributeValue(
             applicationElement,
             kAXFocusedWindowAttribute as CFString,
@@ -75,14 +74,13 @@ final class WindowController {
             kAXMainAttribute as CFString,
             kCFBooleanTrue
         )
-
         let raiseResult = AXUIElementPerformAction(
             window.element,
             kAXRaiseAction as CFString
         )
         return raiseResult == .success
-            || (frontmostResult == .success
-                && (focusedWindowResult == .success || mainWindowResult == .success))
+            || focusedWindowResult == .success
+            || mainWindowResult == .success
     }
 
     func close(_ window: ManagedWindow) async -> WindowCloseResult {

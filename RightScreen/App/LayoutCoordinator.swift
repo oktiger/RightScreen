@@ -56,6 +56,8 @@ final class LayoutCoordinator {
     private var screenRelayoutTask: Task<Void, Never>?
     private var pendingPaneDrop: PendingPaneDrop?
     private var closingWindowIDs = Set<CGWindowID>()
+    /// 盖住同应用兄弟窗口时会触发焦点通知，忽略这些回声以免再次 raise。
+    private var isPreservingWindowStack = false
 
     init() {
         NotificationCenter.default.addObserver(
@@ -65,7 +67,6 @@ final class LayoutCoordinator {
             object: nil
         )
     }
-
     private lazy var windowObservationService = WindowObservationService(
         onWindowCreated: { [weak self] pid in
             self?.scheduleWindowReconciliation(for: pid)
@@ -207,9 +208,13 @@ final class LayoutCoordinator {
     }
 
     private func applyBentoFrames(_ session: BentoSession) {
-        for leaf in session.leafLayouts() {
+        let leaves = session.leafLayouts()
+        for leaf in leaves {
             windowController.setAppKitFrame(leaf.frame, for: leaf.value)
             windowController.raise(leaf.value)
+        }
+        if let focused = leaves.last?.value {
+            preserveVisibleWindowStack(keepingFront: focused)
         }
     }
 
@@ -325,6 +330,12 @@ final class LayoutCoordinator {
                 session.lastFocusedPaneIndex = paneIndex
             }
         }
+
+        if let focusedPane = session.panes.last(where: {
+            $0.windows.indices.contains($0.selectedIndex)
+        }) {
+            preserveVisibleWindowStack(keepingFront: focusedPane.windows[focusedPane.selectedIndex])
+        }
     }
 
     private func createTabBars(for session: LayoutSession) {
@@ -416,12 +427,19 @@ final class LayoutCoordinator {
     }
 
     private func refreshFocusedTab() {
+        if isPreservingWindowStack { return }
+
         if let session {
             releaseNativeFullScreenWindows(from: session)
             guard self.session != nil else { return }
             synchronizeTabSelectionWithSystemFocus(in: session)
         } else if let bentoSession {
             releaseNativeFullScreenWindows(from: bentoSession)
+            guard self.bentoSession != nil else { return }
+            let managedWindows = BentoEngine.leafValues(bentoSession.tree)
+            if let focused = windowController.focusedManagedWindow(in: managedWindows) {
+                preserveVisibleWindowStack(keepingFront: focused)
+            }
         }
     }
 
@@ -513,12 +531,55 @@ final class LayoutCoordinator {
             }
             session.lastFocusedPaneIndex = paneIndex
             session.panes[paneIndex].recordActivation(of: focusedWindow)
-            guard pane.selectedIndex != focusedIndex else { return }
-
-            session.panes[paneIndex].selectedIndex = focusedIndex
-            createOrUpdateTabBar(forPane: paneIndex, in: session)
+            if pane.selectedIndex != focusedIndex {
+                session.panes[paneIndex].selectedIndex = focusedIndex
+                createOrUpdateTabBar(forPane: paneIndex, in: session)
+            }
+            preserveVisibleWindowStack(keepingFront: focusedWindow)
             return
         }
+    }
+
+    private func raisePreservingOtherPanes(_ window: ManagedWindow) {
+        windowController.raise(window)
+        preserveVisibleWindowStack(keepingFront: window)
+    }
+
+    /// 同应用激活时会把兄弟窗口一起前置。把其他格当前可见的、不同进程窗口
+    /// 用「只前置当前窗口」再抬一次盖回去，最后再把焦点还给目标窗口。
+    private func preserveVisibleWindowStack(keepingFront window: ManagedWindow) {
+        guard !isPreservingWindowStack else { return }
+        isPreservingWindowStack = true
+        defer { isPreservingWindowStack = false }
+
+        let covering = WindowStacking.coveringWindows(
+            keepingFront: window,
+            visibleWindows: visibleManagedWindows()
+        )
+        for other in covering {
+            windowController.raise(other)
+        }
+        windowController.raise(window)
+
+        if let session {
+            for panel in session.panels.compactMap({ $0 }) {
+                panel.orderFrontRegardless()
+            }
+        }
+    }
+
+    private func visibleManagedWindows() -> [ManagedWindow] {
+        if let session {
+            return session.panes.compactMap { pane in
+                pane.windows.indices.contains(pane.selectedIndex)
+                    ? pane.windows[pane.selectedIndex]
+                    : nil
+            }
+        }
+        if let bentoSession {
+            return BentoEngine.leafValues(bentoSession.tree)
+        }
+        return []
     }
 
     private func addNewWindow(_ window: ManagedWindow, to session: LayoutSession) {
@@ -556,7 +617,7 @@ final class LayoutCoordinator {
         session.panes[paneIndex] = pane
 
         windowController.setAppKitFrame(pane.geometry.windowFrame, for: window)
-        windowController.raise(window)
+        raisePreservingOtherPanes(window)
         session.lastFocusedPaneIndex = paneIndex
         createOrUpdateTabBar(forPane: paneIndex, in: session)
         scheduleFrameEnforcement(for: window.windowID)
@@ -594,7 +655,7 @@ final class LayoutCoordinator {
                     ? liveWindows[pane.selectedIndex]
                     : nil {
                     windowController.setAppKitFrame(pane.geometry.windowFrame, for: selected)
-                    windowController.raise(selected)
+                    raisePreservingOtherPanes(selected)
                 }
             }
             session.panes[paneIndex] = pane
@@ -618,6 +679,7 @@ final class LayoutCoordinator {
             createOrUpdateTabBar(forPane: paneIndex, in: session)
             return
         }
+        preserveVisibleWindowStack(keepingFront: selectedWindow)
         session.autoJoinedWindowIDs.remove(selectedWindow.windowID)
         session.panes[paneIndex].selectWindow(at: selectedIndex)
         session.lastFocusedPaneIndex = paneIndex
@@ -788,7 +850,7 @@ final class LayoutCoordinator {
 
         applyInitialLayout(session)
         if let focused = session.panes[expansion.focusedPaneIndex].windows.first {
-            windowController.raise(focused)
+            raisePreservingOtherPanes(focused)
         }
         createTabBars(for: session)
         dropTracker.updatePaneFrames(session.panes.map(\.geometry.paneFrame))
@@ -838,6 +900,7 @@ final class LayoutCoordinator {
             windowController.raise(replacement)
             if restoreSourceFocus {
                 session.lastFocusedPaneIndex = sourcePaneIndex
+                preserveVisibleWindowStack(keepingFront: replacement)
                 createOrUpdateTabBar(forPane: sourcePaneIndex, in: session)
                 createOrUpdateTabBar(forPane: targetPaneIndex, in: session)
                 return
@@ -846,6 +909,7 @@ final class LayoutCoordinator {
 
         windowController.raise(window)
         session.lastFocusedPaneIndex = targetPaneIndex
+        preserveVisibleWindowStack(keepingFront: window)
         createOrUpdateTabBar(forPane: sourcePaneIndex, in: session)
         createOrUpdateTabBar(forPane: targetPaneIndex, in: session)
     }
@@ -918,7 +982,7 @@ final class LayoutCoordinator {
                     session.panes[membership.paneIndex].geometry.windowFrame,
                     for: candidate
                 )
-                windowController.raise(candidate)
+                raisePreservingOtherPanes(candidate)
                 scheduleFrameEnforcement(for: candidate.windowID)
             } else {
                 moveTab(
