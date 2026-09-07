@@ -52,4 +52,77 @@ struct WindowStackingTests {
             element: AXUIElementCreateApplication(elementPID)
         )
     }
+
+    @Test func restackSkippedWhenNoSiblingCoversAnotherPane() {
+        let focused = makeWindow(pid: 10, elementPID: 101)
+        let safari = makeWindow(pid: 20, elementPID: 201)
+        let stack = [
+            WindowStacking.StackEntry(windowID: 101, ownerPID: 10, frame: leftPane),
+            WindowStacking.StackEntry(windowID: 201, ownerPID: 20, frame: rightPane)
+        ]
+
+        let needed = WindowStacking.windowsNeedingRestack(
+            keepingFront: focused,
+            visibleWindows: [focused, safari],
+            stack: stack
+        )
+
+        #expect(needed.isEmpty)
+    }
+
+    @Test func restackNeededWhenSiblingSitsAboveAnotherPane() {
+        let focused = makeWindow(pid: 10, elementPID: 101)
+        let safari = makeWindow(pid: 20, elementPID: 201)
+        let stack = [
+            WindowStacking.StackEntry(windowID: 102, ownerPID: 10, frame: rightPane),
+            WindowStacking.StackEntry(windowID: 201, ownerPID: 20, frame: rightPane),
+            WindowStacking.StackEntry(windowID: 101, ownerPID: 10, frame: leftPane)
+        ]
+
+        let needed = WindowStacking.windowsNeedingRestack(
+            keepingFront: focused,
+            visibleWindows: [focused, safari],
+            stack: stack
+        )
+
+        #expect(needed.map(\.windowID) == [201])
+    }
+
+    @Test func restackIgnoresSiblingBelowTheCoveredWindow() {
+        let focused = makeWindow(pid: 10, elementPID: 101)
+        let safari = makeWindow(pid: 20, elementPID: 201)
+        let stack = [
+            WindowStacking.StackEntry(windowID: 201, ownerPID: 20, frame: rightPane),
+            WindowStacking.StackEntry(windowID: 102, ownerPID: 10, frame: rightPane),
+            WindowStacking.StackEntry(windowID: 101, ownerPID: 10, frame: leftPane)
+        ]
+
+        let needed = WindowStacking.windowsNeedingRestack(
+            keepingFront: focused,
+            visibleWindows: [focused, safari],
+            stack: stack
+        )
+
+        #expect(needed.isEmpty)
+    }
+
+    @Test func restackIgnoresWindowsMissingFromTheOnScreenStack() {
+        let focused = makeWindow(pid: 10, elementPID: 101)
+        let safari = makeWindow(pid: 20, elementPID: 201)
+        let stack = [
+            WindowStacking.StackEntry(windowID: 102, ownerPID: 10, frame: rightPane),
+            WindowStacking.StackEntry(windowID: 101, ownerPID: 10, frame: leftPane)
+        ]
+
+        let needed = WindowStacking.windowsNeedingRestack(
+            keepingFront: focused,
+            visibleWindows: [focused, safari],
+            stack: stack
+        )
+
+        #expect(needed.isEmpty)
+    }
+
+    private var leftPane: CGRect { CGRect(x: 0, y: 0, width: 720, height: 900) }
+    private var rightPane: CGRect { CGRect(x: 720, y: 0, width: 720, height: 900) }
 }

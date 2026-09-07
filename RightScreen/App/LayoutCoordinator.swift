@@ -25,6 +25,10 @@ final class LayoutCoordinator {
         .milliseconds(750),
         .milliseconds(1200)
     ]
+    /// raise 之后 WindowServer 与各 App 的激活通知回声窗口。
+    private static let stackRestackEchoWindow: TimeInterval = 0.4
+    /// 激活通知早于叠放生效时的补查延迟。
+    private static let stackRecheckDelay: Duration = .milliseconds(120)
     private static let settlePollInterval: Duration = .milliseconds(50)
     private static let settleTimeout: Duration = .seconds(8)
     private static let dropAdoptionDelays: [Duration] = [
@@ -58,6 +62,9 @@ final class LayoutCoordinator {
     private var closingWindowIDs = Set<CGWindowID>()
     /// 盖住同应用兄弟窗口时会触发焦点通知，忽略这些回声以免再次 raise。
     private var isPreservingWindowStack = false
+    /// raise 引发的激活通知是异步回来的，同步标志拦不住；这里用一小段静默期兜住。
+    private var stackRestackSuppressedUntil: Date?
+    private var stackRecheckTask: Task<Void, Never>?
 
     init() {
         NotificationCenter.default.addObserver(
@@ -160,6 +167,9 @@ final class LayoutCoordinator {
         }
         closeTasks.removeAll()
         cancelPendingDropAdoption()
+        stackRecheckTask?.cancel()
+        stackRecheckTask = nil
+        stackRestackSuppressedUntil = nil
         screenRelayoutTask?.cancel()
         screenRelayoutTask = nil
         dropTracker.stop()
@@ -542,20 +552,54 @@ final class LayoutCoordinator {
 
     private func raisePreservingOtherPanes(_ window: ManagedWindow) {
         windowController.raise(window)
-        preserveVisibleWindowStack(keepingFront: window)
+        // 用户显式操作：叠放结果尚未反映到 WindowServer，直接按格位重排一次。
+        restackVisibleWindows(keepingFront: window, forced: true)
+    }
+
+    /// 焦点事件路径：只在确实被同应用兄弟窗口盖住时才重排。
+    private func preserveVisibleWindowStack(keepingFront window: ManagedWindow) {
+        restackVisibleWindows(keepingFront: window, forced: false, allowRecheck: true)
     }
 
     /// 同应用激活时会把兄弟窗口一起前置。把其他格当前可见的、不同进程窗口
     /// 用「只前置当前窗口」再抬一次盖回去，最后再把焦点还给目标窗口。
-    private func preserveVisibleWindowStack(keepingFront window: ManagedWindow) {
+    ///
+    /// `forced == false` 时先读 CG 真实叠放顺序：没有遮挡就一次 raise 都不做。
+    /// 每次 raise 都会切换前台进程并回传激活通知，无条件重排会让通知指数级放大，
+    /// 表现就是 2 格 / 3 格布局下屏幕持续闪烁。
+    private func restackVisibleWindows(
+        keepingFront window: ManagedWindow,
+        forced: Bool,
+        allowRecheck: Bool = false
+    ) {
         guard !isPreservingWindowStack else { return }
+        if !forced, let until = stackRestackSuppressedUntil, Date() < until { return }
+
+        let visibleWindows = visibleManagedWindows()
+        let covering: [ManagedWindow]
+        if forced {
+            covering = WindowStacking.coveringWindows(
+                keepingFront: window,
+                visibleWindows: visibleWindows
+            )
+        } else {
+            covering = WindowStacking.windowsNeedingRestack(
+                keepingFront: window,
+                visibleWindows: visibleWindows,
+                stack: windowIndexer.onScreenWindowStack()
+            )
+            guard !covering.isEmpty else {
+                // WindowServer 的叠放更新晚于激活通知，稍后再看一眼；只补这一次。
+                if allowRecheck {
+                    scheduleStackRecheck(keepingFront: window)
+                }
+                return
+            }
+        }
+
         isPreservingWindowStack = true
         defer { isPreservingWindowStack = false }
 
-        let covering = WindowStacking.coveringWindows(
-            keepingFront: window,
-            visibleWindows: visibleManagedWindows()
-        )
         for other in covering {
             windowController.raise(other)
         }
@@ -565,6 +609,19 @@ final class LayoutCoordinator {
             for panel in session.panels.compactMap({ $0 }) {
                 panel.orderFrontRegardless()
             }
+        }
+
+        // 忽略这批 raise 自己引发的激活回声，避免再次进入重排。
+        stackRestackSuppressedUntil = Date().addingTimeInterval(Self.stackRestackEchoWindow)
+    }
+
+    private func scheduleStackRecheck(keepingFront window: ManagedWindow) {
+        stackRecheckTask?.cancel()
+        stackRecheckTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.stackRecheckDelay)
+            guard let self, !Task.isCancelled, self.hasActiveLayout else { return }
+            self.stackRecheckTask = nil
+            self.restackVisibleWindows(keepingFront: window, forced: false)
         }
     }
 

@@ -97,6 +97,26 @@ final class WindowIndexer {
         return result
     }
 
+    /// 当前 Space 的窗口叠放顺序（前→后），只用来判断谁盖住了谁。
+    ///
+    /// 不做 AX 映射，读取代价远低于 `currentSpaceWindows()`，可以在焦点事件里高频调用。
+    func onScreenWindowStack() -> [WindowStacking.StackEntry] {
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard
+            let rawWindowInfo = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]]
+        else {
+            return []
+        }
+
+        return rawWindowInfo.compactMap(makeRecord).map { record in
+            WindowStacking.StackEntry(
+                windowID: record.windowID,
+                ownerPID: record.ownerPID,
+                frame: record.frame
+            )
+        }
+    }
+
     private func makeRecord(from info: [String: Any]) -> CGWindowRecord? {
         guard
             let windowIDNumber = info[kCGWindowNumber as String] as? NSNumber,
