@@ -54,8 +54,8 @@ if [[ "$bundle_icon" != "AppIcon" ]]; then
 fi
 
 bundle_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$contents_dir/Info.plist" 2>/dev/null || true)"
-if [[ "$bundle_identifier" != "com.rightscreen.RightScreen" ]]; then
-    print -u2 "打包失败：CFBundleIdentifier 必须为 com.rightscreen.RightScreen，实际为：${bundle_identifier:-<空>}"
+if [[ "$bundle_identifier" != "com.rightscreen.RightScreenApp" ]]; then
+    print -u2 "打包失败：CFBundleIdentifier 必须为 com.rightscreen.RightScreenApp，实际为：${bundle_identifier:-<空>}"
     exit 1
 fi
 

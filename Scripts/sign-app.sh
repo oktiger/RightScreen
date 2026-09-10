@@ -13,7 +13,7 @@ if [[ ! -d "$app_path/Contents" ]]; then
 fi
 
 bundle_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_path/Contents/Info.plist")"
-expected_bundle_identifier="com.rightscreen.RightScreen"
+expected_bundle_identifier="com.rightscreen.RightScreenApp"
 signing_directory="$HOME/Library/Application Support/RightScreen/CodeSigning"
 requirement_file="$signing_directory/designated-requirement"
 signing_keychain=""

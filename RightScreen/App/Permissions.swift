@@ -3,7 +3,7 @@ import ApplicationServices
 import Security
 
 enum Permissions {
-    private static let expectedBundleIdentifier = "com.rightscreen.RightScreen"
+    private static let expectedBundleIdentifier = "com.rightscreen.RightScreenApp"
 
     static var isAccessibilityGranted: Bool {
         AXIsProcessTrusted()

@@ -124,7 +124,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         guard let window = statusItem.button?.window else {
             return false
         }
-        return StatusItemPresence.isParkedOffMenuBar(windowFrame: window.frame)
+        let screen = window.screen ?? NSScreen.main
+        let menuBarHeight = screen.map { $0.frame.maxY - $0.visibleFrame.maxY } ?? 0
+        return StatusItemPresence.isParkedOffMenuBar(
+            windowFrame: window.frame,
+            screenFrame: screen?.frame,
+            menuBarHeight: menuBarHeight
+        )
     }
 
     private func offerMenuBarSettingsIfNeeded() {
@@ -137,9 +143,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         alert.alertStyle = .informational
         alert.messageText = "菜单栏图标被系统隐藏"
         alert.informativeText = """
-        RightScreen 正在运行，但 macOS 可能未允许它显示在菜单栏。
+        RightScreen 正在运行，但 macOS 没有给它分配菜单栏槽位，图标被停在了看不见的位置。
 
-        请打开“系统设置 → 菜单栏”，在“允许在菜单栏中显示”中打开 RightScreen。
+        请打开“系统设置 → 菜单栏”，把 RightScreen 的开关关掉再打开；
+        若仍不显示，请检查 Bartender、iBar 等菜单栏管理工具是否把它收进了隐藏区。
         """
         alert.addButton(withTitle: "打开菜单栏设置")
         alert.addButton(withTitle: "稍后")
