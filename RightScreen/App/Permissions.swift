@@ -80,6 +80,20 @@ enum Permissions {
     }
 
     @MainActor
+    static func openMenuBarSettings() {
+        let candidates = [
+            "x-apple.systempreferences:com.apple.MenuBarSettings",
+            "x-apple.systempreferences:com.apple.ControlCenter-Settings.extension",
+            "x-apple.systempreferences:com.apple.ControlCenter-Settings"
+        ]
+        for urlString in candidates {
+            if let url = URL(string: urlString), NSWorkspace.shared.open(url) {
+                return
+            }
+        }
+    }
+
+    @MainActor
     static func accessibilityHelpMessage(signingIssue: String?) -> (title: String, message: String) {
         if let signingIssue {
             return (

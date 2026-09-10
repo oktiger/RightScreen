@@ -11,6 +11,29 @@ enum LayoutKindIcon {
     private static let plateColor = NSColor(calibratedWhite: 0.22, alpha: 1)
     private static let paneColor = NSColor(calibratedRed: 0.29, green: 0.56, blue: 0.98, alpha: 1)
 
+    /// 菜单栏按钮图标：模板绘制，不依赖 SF Symbol（部分系统上 `systemSymbolName` 会得到 nil）。
+    static func statusBarImage() -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size, flipped: false) { rect in
+            let inset = rect.insetBy(dx: 1.5, dy: 3)
+            let path = NSBezierPath(roundedRect: inset, xRadius: 2.5, yRadius: 2.5)
+            path.lineWidth = 1.4
+            NSColor.black.setStroke()
+            path.stroke()
+
+            let gap: CGFloat = 1.4
+            let midX = inset.midX
+            let divider = NSBezierPath()
+            divider.lineWidth = 1.4
+            divider.move(to: NSPoint(x: midX, y: inset.minY + gap))
+            divider.line(to: NSPoint(x: midX, y: inset.maxY - gap))
+            divider.stroke()
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
     static func image(for kind: LayoutKind) -> NSImage {
         let size = canvasSize
         let image = NSImage(size: size, flipped: false) { rect in
