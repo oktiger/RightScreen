@@ -9,6 +9,7 @@ final class WindowController {
         .milliseconds(50),
         .milliseconds(150)
     ]
+    private static let closeVerificationDelay: Duration = .milliseconds(160)
 
     func isNativeFullScreen(_ window: ManagedWindow, displays: [CGRect] = NativeFullScreen.displayBounds()) -> Bool {
         NativeFullScreen.isActive(
@@ -94,11 +95,88 @@ final class WindowController {
             }
 
             let result = closeOnce(window)
+            if result == .requested {
+                return await verifyRequestedCloseAndApplyCompatibilityFallback(
+                    for: window,
+                    originalResult: result
+                )
+            }
+
+            if let compatibilityResult = closeUsingCompatibilityFallback(for: window) {
+                return compatibilityResult
+            }
+
             if result != .temporarilyUnavailable {
                 return result
             }
         }
         return .temporarilyUnavailable
+    }
+
+    /// 一些 Mac Catalyst App 会对 AXCloseButton 的 AXPress 返回 success，却不执行关闭。
+    /// 仅对经过验证的 bundle 在窗口仍然存活时转用其 App 菜单中的关闭命令。
+    private func verifyRequestedCloseAndApplyCompatibilityFallback(
+        for window: ManagedWindow,
+        originalResult: WindowCloseResult
+    ) async -> WindowCloseResult {
+        guard WindowCloseCompatibility.strategy(for: window.bundleIdentifier) != nil else {
+            return originalResult
+        }
+
+        do {
+            try await Task.sleep(for: Self.closeVerificationDelay)
+        } catch {
+            return originalResult
+        }
+
+        guard isAlive(window), !hasBlockingModalUI(for: window) else {
+            return originalResult
+        }
+
+        return closeUsingCompatibilityFallback(for: window)
+            ?? originalResult
+    }
+
+    /// 返回 nil 代表没有适用的兼容策略，调用方应保留原始 AX 结果。
+    private func closeUsingCompatibilityFallback(for window: ManagedWindow) -> WindowCloseResult? {
+        guard let strategy = WindowCloseCompatibility.strategy(for: window.bundleIdentifier) else {
+            return nil
+        }
+
+        switch strategy {
+        case .menuCloseCommand:
+            guard let closeMenuItem = closeMenuItem(for: window) else {
+                return nil
+            }
+            let result = AXUIElementPerformAction(closeMenuItem, kAXPressAction as CFString)
+            return WindowCloseResult.classify(
+                actionError: result,
+                hasBlockingModalUI: hasBlockingModalUI(for: window)
+            )
+        }
+    }
+
+    /// 不依赖本地化标题（例如“Close”/“关闭”），只匹配 AppKit/Catalyst 的标准 action。
+    private func closeMenuItem(for window: ManagedWindow) -> AXUIElement? {
+        let applicationElement = AXUIElementCreateApplication(window.ownerPID)
+        guard let menuBarValue = AXHelpers.attribute(
+            kAXMenuBarAttribute as CFString,
+            of: applicationElement
+        ), CFGetTypeID(menuBarValue) == AXUIElementGetTypeID() else {
+            return nil
+        }
+
+        let menuBar = menuBarValue as! AXUIElement
+        for menuBarItem in AXHelpers.children(of: menuBar) {
+            for menu in AXHelpers.children(of: menuBarItem) {
+                if let closeItem = AXHelpers.children(of: menu).first(where: {
+                    AXHelpers.string(kAXIdentifierAttribute as CFString, of: $0) == "performClose:"
+                }) {
+                    return closeItem
+                }
+            }
+        }
+        return nil
     }
 
     private func closeOnce(_ window: ManagedWindow) -> WindowCloseResult {

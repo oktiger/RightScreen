@@ -22,6 +22,10 @@ enum AXHelpers {
         attribute(kAXWindowsAttribute as CFString, of: application) as? [AXUIElement] ?? []
     }
 
+    static func children(of element: AXUIElement) -> [AXUIElement] {
+        attribute(kAXChildrenAttribute as CFString, of: element) as? [AXUIElement] ?? []
+    }
+
     static func frame(of element: AXUIElement) -> CGRect? {
         guard
             let positionValue = attribute(kAXPositionAttribute as CFString, of: element),
