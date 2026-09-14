@@ -60,6 +60,11 @@ final class LayoutCoordinator {
     private var screenRelayoutTask: Task<Void, Never>?
     private var pendingPaneDrop: PendingPaneDrop?
     private var closingWindowIDs = Set<CGWindowID>()
+    /// 已确认关掉、但 AX 元素还没消失的窗口。
+    ///
+    /// Mac Catalyst App 关窗之后 AXUIElement 仍然可读，只靠 `isAlive` 会让 Tab 永远留着，
+    /// 后续的 raise 还会把这个 App 重新激活、让它再开一个窗口，看起来就是「关不掉」。
+    private var destroyedWindowIDs = Set<CGWindowID>()
     /// 盖住同应用兄弟窗口时会触发焦点通知，忽略这些回声以免再次 raise。
     private var isPreservingWindowStack = false
     /// raise 引发的激活通知是异步回来的，同步标志拦不住；这里用一小段静默期兜住。
@@ -128,6 +133,7 @@ final class LayoutCoordinator {
         )
         session = newSession
         closingWindowIDs.removeAll()
+        destroyedWindowIDs.removeAll()
 
         applyInitialLayout(newSession)
         createTabBars(for: newSession)
@@ -146,6 +152,7 @@ final class LayoutCoordinator {
         let newSession = BentoSession(screen: screen, windows: windows, tree: tree)
         bentoSession = newSession
         closingWindowIDs.removeAll()
+        destroyedWindowIDs.removeAll()
 
         applyBentoFrames(newSession)
         installBentoChrome(for: newSession)
@@ -174,6 +181,7 @@ final class LayoutCoordinator {
         screenRelayoutTask = nil
         dropTracker.stop()
         closingWindowIDs.removeAll()
+        destroyedWindowIDs.removeAll()
 
         if let session {
             self.session = nil
@@ -680,18 +688,46 @@ final class LayoutCoordinator {
         scheduleFrameEnforcement(for: window.windowID)
     }
 
+    /// 认出「用户自己点关闭按钮关掉、但 AX 元素还赖着不走」的窗口。
+    ///
+    /// Mac Catalyst App 关窗后 AXUIElement 依旧可读，Tab 会一直留在窗格里。
+    /// 离开屏幕窗口名单也可能只是切到了别的桌面，所以要求至少还有一个受管窗口
+    /// 留在当前 Space 上：那说明布局所在的桌面没变，消失的窗口就是真的被关掉了。
+    private func markWindowsClosedOutsideRightScreen(in session: LayoutSession) {
+        let managedWindows = session.panes.flatMap(\.windows)
+        guard
+            let onScreenWindowIDs = windowController.onScreenWindowIDs(),
+            managedWindows.contains(where: { onScreenWindowIDs.contains($0.windowID) })
+        else {
+            return
+        }
+
+        for window in managedWindows
+        where windowController.isClosed(window, onScreenWindowIDs: onScreenWindowIDs) {
+            destroyedWindowIDs.insert(window.windowID)
+        }
+    }
+
     private func removeClosedWindows(from session: LayoutSession) {
+        markWindowsClosedOutsideRightScreen(in: session)
+
         for paneIndex in session.panes.indices {
             var pane = session.panes[paneIndex]
             let selectedID = pane.windows.indices.contains(pane.selectedIndex)
                 ? pane.windows[pane.selectedIndex].windowID
                 : nil
-            let liveWindows = pane.windows.filter(windowController.isAlive)
+            let liveWindows = pane.windows.filter { window in
+                windowController.isAlive(window)
+                    && !destroyedWindowIDs.contains(window.windowID)
+            }
             guard liveWindows.count != pane.windows.count else { continue }
 
             let closedIDs = Set(pane.windows.map(\.windowID)).subtracting(liveWindows.map(\.windowID))
             session.autoJoinedWindowIDs.subtract(closedIDs)
             closingWindowIDs.subtract(closedIDs)
+            // 关掉的窗口 ID 会被系统回收再利用，移出窗格后必须立刻忘记，
+            // 否则同一个 ID 的新窗口会被当成已关闭的窗口，再也接管不了。
+            destroyedWindowIDs.subtract(closedIDs)
             for windowID in closedIDs {
                 cancelFrameEnforcement(for: windowID)
                 session.originalFrames.removeValue(forKey: windowID)
@@ -774,15 +810,18 @@ final class LayoutCoordinator {
             closeTasks[window.windowID] = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(200))
                 guard let self, !Task.isCancelled else { return }
+                if self.windowController.isClosed(window) {
+                    self.destroyedWindowIDs.insert(window.windowID)
+                } else {
+                    self.closingWindowIDs.remove(window.windowID)
+                }
                 if let session = self.session {
                     self.removeClosedWindows(from: session)
-                }
-                if self.windowController.isAlive(window) {
-                    self.closingWindowIDs.remove(window.windowID)
                 }
                 self.closeTasks[window.windowID] = nil
             }
         case .windowUnavailable:
+            destroyedWindowIDs.insert(window.windowID)
             if let session {
                 removeClosedWindows(from: session)
             }

@@ -9,7 +9,9 @@ final class WindowController {
         .milliseconds(50),
         .milliseconds(150)
     ]
-    private static let closeVerificationDelay: Duration = .milliseconds(160)
+    /// 关闭请求发出后，回读窗口是否真的消失的时间上限。
+    private static let closeConfirmationTimeout: Duration = .milliseconds(600)
+    private static let closeConfirmationPollInterval: Duration = .milliseconds(60)
 
     func isNativeFullScreen(_ window: ManagedWindow, displays: [CGRect] = NativeFullScreen.displayBounds()) -> Bool {
         NativeFullScreen.isActive(
@@ -96,14 +98,7 @@ final class WindowController {
 
             let result = closeOnce(window)
             if result == .requested {
-                return await verifyRequestedCloseAndApplyCompatibilityFallback(
-                    for: window,
-                    originalResult: result
-                )
-            }
-
-            if let compatibilityResult = closeUsingCompatibilityFallback(for: window) {
-                return compatibilityResult
+                return await confirmRequestedClose(for: window, originalResult: result)
             }
 
             if result != .temporarilyUnavailable {
@@ -113,70 +108,28 @@ final class WindowController {
         return .temporarilyUnavailable
     }
 
-    /// 一些 Mac Catalyst App 会对 AXCloseButton 的 AXPress 返回 success，却不执行关闭。
-    /// 仅对经过验证的 bundle 在窗口仍然存活时转用其 App 菜单中的关闭命令。
-    private func verifyRequestedCloseAndApplyCompatibilityFallback(
+    /// AXPress 返回 success 只代表 macOS 收下了关闭请求，这里回读窗口是否真的没了。
+    ///
+    /// 回读不能只看 AX。Mac Catalyst App（例如 Shadowrocket）窗口关掉之后，
+    /// 它的 AXUIElement 仍然可读，`isAlive` 会一直返回 true，关闭看起来永远没生效；
+    /// CG 的当前 Space 窗口名单才是「窗口还在不在」的可信来源。
+    private func confirmRequestedClose(
         for window: ManagedWindow,
         originalResult: WindowCloseResult
     ) async -> WindowCloseResult {
-        guard WindowCloseCompatibility.strategy(for: window.bundleIdentifier) != nil else {
-            return originalResult
-        }
-
-        do {
-            try await Task.sleep(for: Self.closeVerificationDelay)
-        } catch {
-            return originalResult
-        }
-
-        guard isAlive(window), !hasBlockingModalUI(for: window) else {
-            return originalResult
-        }
-
-        return closeUsingCompatibilityFallback(for: window)
-            ?? originalResult
-    }
-
-    /// 返回 nil 代表没有适用的兼容策略，调用方应保留原始 AX 结果。
-    private func closeUsingCompatibilityFallback(for window: ManagedWindow) -> WindowCloseResult? {
-        guard let strategy = WindowCloseCompatibility.strategy(for: window.bundleIdentifier) else {
-            return nil
-        }
-
-        switch strategy {
-        case .menuCloseCommand:
-            guard let closeMenuItem = closeMenuItem(for: window) else {
-                return nil
-            }
-            let result = AXUIElementPerformAction(closeMenuItem, kAXPressAction as CFString)
-            return WindowCloseResult.classify(
-                actionError: result,
-                hasBlockingModalUI: hasBlockingModalUI(for: window)
-            )
-        }
-    }
-
-    /// 不依赖本地化标题（例如“Close”/“关闭”），只匹配 AppKit/Catalyst 的标准 action。
-    private func closeMenuItem(for window: ManagedWindow) -> AXUIElement? {
-        let applicationElement = AXUIElementCreateApplication(window.ownerPID)
-        guard let menuBarValue = AXHelpers.attribute(
-            kAXMenuBarAttribute as CFString,
-            of: applicationElement
-        ), CFGetTypeID(menuBarValue) == AXUIElementGetTypeID() else {
-            return nil
-        }
-
-        let menuBar = menuBarValue as! AXUIElement
-        for menuBarItem in AXHelpers.children(of: menuBar) {
-            for menu in AXHelpers.children(of: menuBarItem) {
-                if let closeItem = AXHelpers.children(of: menu).first(where: {
-                    AXHelpers.string(kAXIdentifierAttribute as CFString, of: $0) == "performClose:"
-                }) {
-                    return closeItem
-                }
+        let deadline = ContinuousClock.now.advanced(by: Self.closeConfirmationTimeout)
+        while true {
+            if isClosed(window) { return .windowUnavailable }
+            guard ContinuousClock.now < deadline else { break }
+            do {
+                try await Task.sleep(for: Self.closeConfirmationPollInterval)
+            } catch {
+                break
             }
         }
-        return nil
+
+        // 窗口还在，多半是弹出了保存或确认对话框：保留原始结果，Tab 等用户处理完再消失。
+        return originalResult
     }
 
     private func closeOnce(_ window: ManagedWindow) -> WindowCloseResult {
@@ -245,6 +198,50 @@ final class WindowController {
 
     func isAlive(_ window: ManagedWindow) -> Bool {
         AXHelpers.string(kAXRoleAttribute as CFString, of: window.element) != nil
+    }
+
+    /// 窗口是否已经不存在：AX 元素失效，或者它已经从当前 Space 的窗口名单里消失。
+    ///
+    /// 切换桌面、窗口被拖到别的 Space 时同样会离开这份名单。所以调用方要么刚刚
+    /// 对这个窗口发过关闭请求，要么先确认布局还停在当前桌面；日常巡检不能拿它
+    /// 替代 `isAlive`，否则切一次桌面就会把所有 Tab 清掉。
+    func isClosed(_ window: ManagedWindow) -> Bool {
+        guard isAlive(window) else { return true }
+        // 读不到窗口名单时不下结论，宁可保留 Tab。
+        guard let onScreenWindowIDs = onScreenWindowIDs() else { return false }
+        return isClosed(window, onScreenWindowIDs: onScreenWindowIDs)
+    }
+
+    /// 判断窗口是否已经关闭，复用一次性读好的屏幕窗口名单。
+    func isClosed(_ window: ManagedWindow, onScreenWindowIDs: Set<CGWindowID>) -> Bool {
+        let isElementAlive = isAlive(window)
+        let isListedOnScreen = onScreenWindowIDs.contains(window.windowID)
+        // 只有窗口确实离开名单时才值得再读一次 AX。
+        let isMinimized = isElementAlive
+            && !isListedOnScreen
+            && AXHelpers.bool(kAXMinimizedAttribute as CFString, of: window.element) == true
+
+        return WindowClosure.isClosed(
+            accessibilityElementAlive: isElementAlive,
+            isListedOnScreen: isListedOnScreen,
+            isMinimized: isMinimized
+        )
+    }
+
+    /// 当前 Space 上没有被最小化、也没有被隐藏的窗口 ID。
+    ///
+    /// 读不到名单时返回 nil，调用方应当放弃这一轮判断，而不是把窗口当成已关闭。
+    func onScreenWindowIDs() -> Set<CGWindowID>? {
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard let rawWindowInfo = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
+            return nil
+        }
+
+        return Set(
+            rawWindowInfo.compactMap { info in
+                (info[kCGWindowNumber as String] as? NSNumber)?.uint32Value
+            }
+        )
     }
 
     /// 返回系统当前真正聚焦的受管窗口。
