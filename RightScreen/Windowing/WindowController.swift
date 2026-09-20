@@ -49,9 +49,20 @@ final class WindowController {
         setAccessibilityFrame(ScreenIdentity.convertFrame(frame), for: window)
     }
 
+    /// 前置窗口。已经关掉的窗口一律不碰。
+    ///
+    /// 前置必然把窗口所属进程切到前台，系统把这当成「用户切到了这个 App」；
+    /// 对已经关掉的窗口这么做会触发 reopen，App 会再开一个窗口回来。
+    /// Mac Catalyst App（Shadowrocket）关窗后 AX 元素还在，只有屏幕窗口名单能看出真相。
     @discardableResult
     func raise(_ window: ManagedWindow) -> Bool {
-        guard isAlive(window) else { return false }
+        raise(window, withOnScreenWindowIDs: onScreenWindowIDs())
+    }
+
+    /// 批量前置时复用一次读好的屏幕窗口名单。`nil` 表示名单没读到，此时按放行处理。
+    @discardableResult
+    func raise(_ window: ManagedWindow, withOnScreenWindowIDs listedIDs: Set<CGWindowID>?) -> Bool {
+        guard canActivate(window, withOnScreenWindowIDs: listedIDs) else { return false }
         guard !isNativeFullScreen(window) else { return false }
 
         let ordered = orderFrontWithinApplication(window)
@@ -63,6 +74,22 @@ final class WindowController {
         let activated = ProcessActivation.bringFrontWindowOnly(pid: window.ownerPID)
 
         return ordered || activated
+    }
+
+    /// 这个窗口此刻是否还值得被激活：AX 元素可读，且仍在当前 Space 的屏幕窗口名单里。
+    func canActivate(_ window: ManagedWindow) -> Bool {
+        canActivate(window, withOnScreenWindowIDs: onScreenWindowIDs())
+    }
+
+    /// 复用调用方读好的屏幕窗口名单做同一判断。
+    /// `listedIDs == nil` 表示名单没读到，此时不下结论、按可激活处理，
+    /// 宁可多前置一次，也不要让正常布局整体卡住。
+    func canActivate(_ window: ManagedWindow, withOnScreenWindowIDs listedIDs: Set<CGWindowID>?) -> Bool {
+        WindowActivation.allowsActivation(
+            isAccessibilityElementAlive: isAlive(window),
+            isListedOnScreen: listedIDs?.contains(window.windowID) == true,
+            hasOnScreenList: listedIDs != nil
+        )
     }
 
     private func orderFrontWithinApplication(_ window: ManagedWindow) -> Bool {
@@ -282,7 +309,14 @@ final class WindowController {
             return nil
         }
 
-        let candidates = windows.filter { $0.ownerPID == frontmostPID }
+        // 前台 App 的窗口全关掉之后，AXFocusedWindow 可能仍然指向那个「关不掉的」
+        // AX 元素（Mac Catalyst）。把已经离开屏幕名单的窗口排除，Tab 高亮才不会
+        // 跳回一个已经不存在的窗口，后续重排也不会再去激活它。
+        let listedIDs = onScreenWindowIDs()
+        let candidates = windows.filter { window in
+            window.ownerPID == frontmostPID
+                && (listedIDs.map { $0.contains(window.windowID) } ?? true)
+        }
         if let exact = candidates.first(where: { CFEqual($0.element, focusedWindowElement) }) {
             return exact
         }

@@ -227,9 +227,10 @@ final class LayoutCoordinator {
 
     private func applyBentoFrames(_ session: BentoSession) {
         let leaves = session.leafLayouts()
+        let onScreenWindowIDs = windowController.onScreenWindowIDs()
         for leaf in leaves {
             windowController.setAppKitFrame(leaf.frame, for: leaf.value)
-            windowController.raise(leaf.value)
+            windowController.raise(leaf.value, withOnScreenWindowIDs: onScreenWindowIDs)
         }
         if let focused = leaves.last?.value {
             preserveVisibleWindowStack(keepingFront: focused)
@@ -291,8 +292,22 @@ final class LayoutCoordinator {
         guard bentoSession != nil else { return }
 
         let previousValues = BentoEngine.leafValues(session.tree)
-        let liveWindows = previousValues.filter(windowController.isAlive)
+        // 网格模式同样要认出「AX 元素还在、窗口已经没了」的 Mac Catalyst 窗口，
+        // 否则它会一直占着一个格子，而每次重排都会重新前置它、把它唤回来。
+        markWindowsClosedOutsideRightScreen(among: previousValues)
+        let liveWindows = previousValues.filter { window in
+            windowController.isAlive(window) && !destroyedWindowIDs.contains(window.windowID)
+        }
         if liveWindows.count != previousValues.count {
+            let closed = previousValues.filter { window in
+                !liveWindows.contains(where: { $0.windowID == window.windowID })
+            }
+            let closedIDs = Set(closed.map(\.windowID))
+            closingWindowIDs.subtract(closedIDs)
+            // 窗口 ID 会被系统回收再利用，移出布局后必须立刻忘记。
+            destroyedWindowIDs.subtract(closedIDs)
+            forgetReleasedWindows(closed, originalFrames: &session.originalFrames)
+
             if liveWindows.isEmpty {
                 exitLayout()
                 return
@@ -316,6 +331,7 @@ final class LayoutCoordinator {
 
     private func addNewWindowToBento(_ window: ManagedWindow, session: BentoSession) {
         guard !windowController.isNativeFullScreen(window) else { return }
+        guard windowController.canActivate(window) else { return }
 
         var windows = BentoEngine.leafValues(session.tree)
         guard
@@ -583,7 +599,16 @@ final class LayoutCoordinator {
         guard !isPreservingWindowStack else { return }
         if !forced, let until = stackRestackSuppressedUntil, Date() < until { return }
 
-        let visibleWindows = visibleManagedWindows()
+        // 一次读好屏幕窗口名单，后面所有 raise 复用同一份快照：
+        // 既省掉逐个窗口重复读取，也保证不会前置一个已经关掉的窗口。
+        let onScreenWindowIDs = windowController.onScreenWindowIDs()
+        guard windowController.canActivate(window, withOnScreenWindowIDs: onScreenWindowIDs) else {
+            return
+        }
+
+        let visibleWindows = visibleManagedWindows().filter {
+            windowController.canActivate($0, withOnScreenWindowIDs: onScreenWindowIDs)
+        }
         let covering: [ManagedWindow]
         if forced {
             covering = WindowStacking.coveringWindows(
@@ -609,9 +634,9 @@ final class LayoutCoordinator {
         defer { isPreservingWindowStack = false }
 
         for other in covering {
-            windowController.raise(other)
+            windowController.raise(other, withOnScreenWindowIDs: onScreenWindowIDs)
         }
-        windowController.raise(window)
+        windowController.raise(window, withOnScreenWindowIDs: onScreenWindowIDs)
 
         if let session {
             for panel in session.panels.compactMap({ $0 }) {
@@ -633,22 +658,29 @@ final class LayoutCoordinator {
         }
     }
 
+    /// 各格（或网格各叶）当前显示的窗口。已确认关掉的窗口不算「可见」，
+    /// 否则重排会把它重新前置，等于替用户点了一次 Dock 图标。
     private func visibleManagedWindows() -> [ManagedWindow] {
+        let windows: [ManagedWindow]
         if let session {
-            return session.panes.compactMap { pane in
+            windows = session.panes.compactMap { pane in
                 pane.windows.indices.contains(pane.selectedIndex)
                     ? pane.windows[pane.selectedIndex]
                     : nil
             }
+        } else if let bentoSession {
+            windows = BentoEngine.leafValues(bentoSession.tree)
+        } else {
+            return []
         }
-        if let bentoSession {
-            return BentoEngine.leafValues(bentoSession.tree)
-        }
-        return []
+        return windows.filter { !destroyedWindowIDs.contains($0.windowID) }
     }
 
     private func addNewWindow(_ window: ManagedWindow, to session: LayoutSession) {
         guard !windowController.isNativeFullScreen(window) else { return }
+        // 发现到并入之间窗口可能已经被关掉。并入会立刻前置它，
+        // 而前置一个已经没了的窗口会把它所属的 App 重新唤起来。
+        guard windowController.canActivate(window) else { return }
 
         let managedWindows = session.panes.flatMap(\.windows)
         guard
@@ -693,8 +725,7 @@ final class LayoutCoordinator {
     /// Mac Catalyst App 关窗后 AXUIElement 依旧可读，Tab 会一直留在窗格里。
     /// 离开屏幕窗口名单也可能只是切到了别的桌面，所以要求至少还有一个受管窗口
     /// 留在当前 Space 上：那说明布局所在的桌面没变，消失的窗口就是真的被关掉了。
-    private func markWindowsClosedOutsideRightScreen(in session: LayoutSession) {
-        let managedWindows = session.panes.flatMap(\.windows)
+    private func markWindowsClosedOutsideRightScreen(among managedWindows: [ManagedWindow]) {
         guard
             let onScreenWindowIDs = windowController.onScreenWindowIDs(),
             managedWindows.contains(where: { onScreenWindowIDs.contains($0.windowID) })
@@ -709,7 +740,7 @@ final class LayoutCoordinator {
     }
 
     private func removeClosedWindows(from session: LayoutSession) {
-        markWindowsClosedOutsideRightScreen(in: session)
+        markWindowsClosedOutsideRightScreen(among: session.panes.flatMap(\.windows))
 
         for paneIndex in session.panes.indices {
             var pane = session.panes[paneIndex]
@@ -736,6 +767,7 @@ final class LayoutCoordinator {
             pane.activationHistory.removeAll { id in
                 !liveWindows.contains(where: { $0.windowID == id })
             }
+            var windowToRaise: ManagedWindow?
             if let selectedID, let retainedIndex = liveWindows.firstIndex(where: { $0.windowID == selectedID }) {
                 pane.selectedIndex = retainedIndex
             } else {
@@ -744,14 +776,19 @@ final class LayoutCoordinator {
                     history: pane.activationHistory,
                     removedIndex: pane.selectedIndex
                 )
-                if let selected = liveWindows.indices.contains(pane.selectedIndex)
+                windowToRaise = liveWindows.indices.contains(pane.selectedIndex)
                     ? liveWindows[pane.selectedIndex]
-                    : nil {
-                    windowController.setAppKitFrame(pane.geometry.windowFrame, for: selected)
-                    raisePreservingOtherPanes(selected)
-                }
+                    : nil
             }
+            // 先把清理结果写回窗格，再去前置接任的窗口。
+            // 顺序反过来的话，重排读到的仍是旧窗格：刚关掉的窗口还挂在「当前可见」名单里，
+            // 会被当成需要盖回去的窗口再 raise 一次，于是 Shadowrocket 这类 App 被重新激活，
+            // 一两秒后自己把窗口开了回来。
             session.panes[paneIndex] = pane
+            if let windowToRaise {
+                windowController.setAppKitFrame(pane.geometry.windowFrame, for: windowToRaise)
+                raisePreservingOtherPanes(windowToRaise)
+            }
             createOrUpdateTabBar(forPane: paneIndex, in: session)
         }
     }
@@ -767,6 +804,13 @@ final class LayoutCoordinator {
 
         let pane = session.panes[paneIndex]
         let selectedWindow = pane.windows[selectedIndex]
+        // 点到一个其实已经关掉的 Tab（Mac Catalyst App 关窗后 AX 元素还在）：
+        // 绝不能去前置它，那等于替用户点了一次 Dock 图标，窗口会被重新开出来。
+        // 交给统一的巡检判定：确认关掉就把 Tab 清掉，判不准就只留着，什么都不做。
+        guard windowController.canActivate(selectedWindow) else {
+            removeClosedWindows(from: session)
+            return
+        }
         windowController.setAppKitFrame(pane.geometry.windowFrame, for: selectedWindow)
         guard windowController.raise(selectedWindow) else {
             createOrUpdateTabBar(forPane: paneIndex, in: session)
@@ -1186,6 +1230,8 @@ final class LayoutCoordinator {
                 return
             }
             guard !self.windowController.isNativeFullScreen(window) else { return }
+            // 等窗口稳定的这段时间里，用户可能已经把它关掉了。
+            guard self.windowController.canActivate(window) else { return }
 
             if let session = self.session {
                 self.addNewWindow(window, to: session)
