@@ -54,7 +54,7 @@ macOS 菜单栏窗口管理工具。提供两种互斥布局模式：
 - 网格模式 / 其它布局菜单 / 退出布局的可配置快捷键、排除名单、多显示器策略、网格间距
 - 网格模式：拖窗交换、边插入、Fill、Retile
 - 新窗口自动并入当前布局（Tab / 网格模式已有基础可增强）
-- 命名布局保存/恢复、拖拽换格、Tab 重排
+- 命名布局保存/恢复、Tab 重排
 
 ---
 
@@ -117,7 +117,17 @@ macOS 菜单栏窗口管理工具。提供两种互斥布局模式：
 - **例外**：全屏（1 格）时，左右换格快捷键不忽略，而是切换为左右二分：当前 Tab 落到对应侧（移到左侧 → 左格，移到右侧 → 右格），其余窗口保持原顺序留在对侧。
 - 换格箭头仅显示合法相邻格：左右二分 / 左右三等分仅水平（三等分中格可左右，左右格各只朝向中间）；上下二分仅垂直；1+2 / 2+1 / 四等分按格位邻接。
 - **每格记住最近使用的 Tab（MRU）**。关闭或把当前 Tab 换到邻格后，该格回到上一工作窗口，而不是第一个 Tab。
-- **新窗口按落点并入窗格**，成为该格当前 Tab。Tab Mode 下从一格拖到另一格时，目标格显示淡蓝半透明蒙版（忽略鼠标，不抢 Chrome 松手）。松手后把新窗口并入蒙版所在格并铺满该格。拖动尚未松手时不 raise / 不改 frame。若没有跨格拖放，仍按窗口中心点（否则相交面积，否则焦点格）并入。典型路径：从 Chrome 拖出标签移到右半屏 → 右格出现淡蓝蒙版 → 松手后新窗口成为右格当前 Tab 并铺满右半屏，左格继续显示原窗口。不解析 Chrome 内部标签，只把拖出后的新窗口当整窗管理。若用户尚未点选该 Tab 就把它换到邻格，焦点回到源格上一工作窗口（例：左格正在用 3 号，新软件变成 4 号并激活，把 4 号移到右侧后，左侧回到 3 号并继续操作）。若用户先点选了该 Tab 再换格，焦点跟随被移动的窗口；源格仍显示上一工作窗口。
+- **换格只通过 Tab 上的方向箭头（或对应快捷键）**。不做拖拽换格：不监听跨格拖动、不显示蓝色落点蒙版。
+- **新窗口按落点并入窗格**，成为该格当前 Tab：按窗口中心点（否则相交面积，否则焦点格）并入。鼠标仍按住时（例如正从 Chrome 拖出标签）不 raise / 不改 frame，松手稳定后再并入。不解析 Chrome 内部标签，只把拖出后的新窗口当整窗管理。若用户尚未点选该 Tab 就把它换到邻格，焦点回到源格上一工作窗口（例：左格正在用 3 号，新软件变成 4 号并激活，把 4 号移到右侧后，左侧回到 3 号并继续操作）。若用户先点选了该 Tab 再换格，焦点跟随被移动的窗口；源格仍显示上一工作窗口。
+
+- **Tab 过多时统一缩窄**，不出现横向滚动条。依次降级：缩小 Tab 宽度 → 去掉标题只留 Icon（换格按钮常显）→ 去掉换格按钮只留 Icon + 关闭。最小形态仍放不下时，末尾显示「+N」按钮，点开菜单选择其余窗口；当前 Tab 始终留在条上。
+
+### 2.6.1 再次选择当前布局
+
+- 已处于某 Tab 布局时再点同一布局（例：左右二分中再点「左右二分」），**不重新均分**。
+- 已贴合格位的窗口原地不动，Tab 顺序不变（例：左 1 右 6 仍为左 1 右 6）。
+- 跑出格位的窗口按中心点所在格归位：仍在原格一侧则留在原格；落到另一格则追加到该格末尾并成为当前 Tab。
+- 被缩小、挪动或最小化的窗口恢复为铺满所属格。尚未接管的新窗口按落点并入。
 
 ### 2.7 退出布局
 
@@ -153,7 +163,6 @@ LayoutEngine             Tab 预设几何 + 窗口→窗格分配
 BentoEngine              BSP 树构建 / 布局 / 分隔比例
 WindowController         setFrame / raise / hide 的统一出口
 PaneTabBarPanel          Tab Mode：每格一条浮层 Tab UI
-PaneDropOverlayPanel     Tab Mode：跨格拖放时的淡蓝落点蒙版
 BentoDividerController   网格模式：分隔条把手
 BentoPreviewPanel        网格模式：拖动时 Icon 玻璃预览
 LayoutSession            Tab 会话
@@ -183,7 +192,7 @@ RightScreen/
 ├── App/           # AppDelegate, StatusItem, Permissions, Coordinator
 ├── Windowing/     # Indexer, Controller, AX helpers
 ├── Layout/        # LayoutKind, LayoutEngine, BentoEngine
-├── Chrome/        # PaneTabBarPanel, PaneDropOverlay, BentoDivider, BentoPreview
+├── Chrome/        # PaneTabBarPanel, BentoDivider, BentoPreview
 ├── Store/         # LayoutSession, BentoSession
 ├── HotKeys/       # HotKeyCenter, KeyChord, 设置存储
 └── Resources/     # Info.plist, Assets

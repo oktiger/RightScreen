@@ -4,12 +4,19 @@ struct PaneTabPresentation: Equatable {
     let title: String
     let ownerPID: pid_t
 
-    var applicationIcon: NSImage? {
+    /// 同一进程的 Icon 只缩放一次；Tab 条频繁刷新时不再反复拷贝图像。
+    @MainActor private static var iconCache: [pid_t: NSImage] = [:]
+
+    @MainActor var applicationIcon: NSImage? {
+        if let cached = Self.iconCache[ownerPID] {
+            return cached
+        }
         guard let icon = NSRunningApplication(processIdentifier: ownerPID)?.icon else {
             return nil
         }
         let scaledIcon = (icon.copy() as? NSImage) ?? icon
         scaledIcon.size = CGSize(width: 13, height: 13)
+        Self.iconCache[ownerPID] = scaledIcon
         return scaledIcon
     }
 }
@@ -203,8 +210,6 @@ private final class PaneTabItemView: NSView {
     private enum Metrics {
         static let cornerRadius: CGFloat = 8
         static let titleLeadingInset: CGFloat = 9
-        static let closeButtonWidth: CGFloat = 23
-        static let moveButtonWidth: CGFloat = 20
     }
 
     private let materialView = NSVisualEffectView()
@@ -214,20 +219,28 @@ private final class PaneTabItemView: NSView {
     private let moveButtonStack = NSStackView()
     private var moveButtons: [PaneTabChromeButton] = []
     private let moveDirections: [PaneMoveDirection]
-    private let selectionHandler: () -> Void
-    private let closeHandler: () -> Void
-    private let moveHandler: (PaneMoveDirection) -> Void
+    private let selectionHandler: (Int) -> Void
+    private let closeHandler: (Int) -> Void
+    private let moveHandler: (Int, PaneMoveDirection) -> Void
+    private var tab: PaneTabPresentation?
     private var isSelected = false
     private var isHovered = false
     private var trackingArea: NSTrackingArea?
 
+    /// 当前对应的 Tab 下标；视图复用时随之更新，回调总是报告最新下标。
+    var tabIndex = 0
+    var displayMode: PaneTabDisplayMode = .full {
+        didSet {
+            guard displayMode != oldValue else { return }
+            applyDisplayMode()
+        }
+    }
+
     init(
-        tab: PaneTabPresentation,
-        isSelected: Bool,
         moveDirections: [PaneMoveDirection],
-        selectionHandler: @escaping () -> Void,
-        closeHandler: @escaping () -> Void,
-        moveHandler: @escaping (PaneMoveDirection) -> Void
+        selectionHandler: @escaping (Int) -> Void,
+        closeHandler: @escaping (Int) -> Void,
+        moveHandler: @escaping (Int, PaneMoveDirection) -> Void
     ) {
         self.moveDirections = moveDirections
         self.selectionHandler = selectionHandler
@@ -254,14 +267,9 @@ private final class PaneTabItemView: NSView {
         tintView.layer?.cornerRadius = Metrics.cornerRadius
         tintView.layer?.masksToBounds = true
 
-        selectButton.title = tab.title
-        selectButton.toolTip = tab.title
-        selectButton.image = tab.applicationIcon
-        selectButton.imagePosition = tab.applicationIcon == nil ? .noImage : .imageLeading
         selectButton.imageScaling = .scaleProportionallyDown
         selectButton.imageHugsTitle = true
         selectButton.isBordered = false
-        selectButton.alignment = .left
         selectButton.font = .systemFont(ofSize: 11, weight: .medium)
         selectButton.cell?.lineBreakMode = .byTruncatingTail
         selectButton.target = self
@@ -293,12 +301,26 @@ private final class PaneTabItemView: NSView {
         addSubview(selectButton)
         addSubview(moveButtonStack)
         addSubview(closeButton)
-        updateSelection(isSelected)
+        applyDisplayMode()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(tab: PaneTabPresentation, isSelected: Bool) {
+        if self.tab != tab {
+            self.tab = tab
+            let icon = tab.applicationIcon
+            selectButton.image = icon
+            selectButton.toolTip = tab.title
+            selectButton.setAccessibilityLabel(tab.title)
+            applyDisplayMode()
+        }
+        if self.isSelected != isSelected || tintView.layer?.backgroundColor == nil {
+            updateSelection(isSelected)
+        }
     }
 
     override func updateTrackingAreas() {
@@ -318,13 +340,11 @@ private final class PaneTabItemView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         isHovered = true
-        updateMoveControlsVisibility()
         needsLayout = true
     }
 
     override func mouseExited(with event: NSEvent) {
         isHovered = false
-        updateMoveControlsVisibility()
         needsLayout = true
     }
 
@@ -333,48 +353,64 @@ private final class PaneTabItemView: NSView {
         materialView.frame = bounds
         tintView.frame = bounds
 
+        let closeWidth = PaneTabStripLayout.closeButtonWidth
         let showMoves = shouldShowMoveControls
         let moveWidth = showMoves
-            ? CGFloat(moveDirections.count) * Metrics.moveButtonWidth
+            ? CGFloat(moveDirections.count) * PaneTabStripLayout.moveButtonWidth
             : 0
         moveButtonStack.isHidden = !showMoves
         moveButtonStack.frame = CGRect(
-            x: bounds.width - Metrics.closeButtonWidth - moveWidth,
+            x: bounds.width - closeWidth - moveWidth,
             y: 0,
             width: moveWidth,
             height: bounds.height
         )
+        let leading = displayMode == .full ? Metrics.titleLeadingInset : 0
+        let selectWidth = displayMode == .full
+            ? bounds.width - closeWidth - moveWidth - leading
+            : PaneTabStripLayout.iconAreaWidth
         selectButton.frame = CGRect(
-            x: Metrics.titleLeadingInset,
+            x: leading,
             y: 0,
-            width: max(
-                0,
-                bounds.width - Metrics.closeButtonWidth - moveWidth - Metrics.titleLeadingInset
-            ),
+            width: max(0, selectWidth),
             height: bounds.height
         )
         closeButton.frame = CGRect(
-            x: bounds.width - Metrics.closeButtonWidth,
+            x: bounds.width - closeWidth,
             y: 0,
-            width: Metrics.closeButtonWidth,
+            width: closeWidth,
             height: bounds.height
         )
     }
 
     @objc private func selectTab() {
-        selectionHandler()
+        selectionHandler(tabIndex)
     }
 
     @objc private func closeWindow() {
-        closeHandler()
+        closeHandler(tabIndex)
     }
 
     @objc private func moveButtonClicked(_ sender: PaneTabChromeButton) {
         guard moveDirections.indices.contains(sender.tag) else { return }
-        moveHandler(moveDirections[sender.tag])
+        moveHandler(tabIndex, moveDirections[sender.tag])
     }
 
-    func updateSelection(_ isSelected: Bool) {
+    private func applyDisplayMode() {
+        let hasIcon = selectButton.image != nil
+        if displayMode == .full || !hasIcon {
+            selectButton.title = tab?.title ?? ""
+            selectButton.imagePosition = hasIcon ? .imageLeading : .noImage
+            selectButton.alignment = .left
+        } else {
+            selectButton.title = ""
+            selectButton.imagePosition = .imageOnly
+            selectButton.alignment = .center
+        }
+        needsLayout = true
+    }
+
+    private func updateSelection(_ isSelected: Bool) {
         self.isSelected = isSelected
         // Keep every item independently frosted. The selected item receives an
         // almost opaque white tint, matching the reference while preserving a
@@ -401,35 +437,108 @@ private final class PaneTabItemView: NSView {
         layer?.shadowRadius = isSelected ? 2 : 1
         layer?.shadowOffset = CGSize(width: 0, height: -1)
 
-        updateMoveControlsVisibility()
         needsLayout = true
     }
 
+    /// 最小档（只剩 Icon + 关闭）不再显示换格按钮；换格仍可用快捷键。
     private var shouldShowMoveControls: Bool {
-        !moveDirections.isEmpty && (isSelected || isHovered)
+        guard !moveDirections.isEmpty, displayMode != .iconOnly else { return false }
+        // 纯 Icon 档的宽度已经给换格按钮留了位置，常显即可，避免悬停时挤压 Icon。
+        if displayMode == .iconWithMoves { return true }
+        return isSelected || isHovered
+    }
+}
+
+/// Tab 太多、最小形态也放不下时的「+N」按钮，点开菜单选其余 Tab。
+@MainActor
+private final class PaneTabOverflowButton: NSView {
+    private let materialView = NSVisualEffectView()
+    private let tintView = NSView()
+    private let button = NSButton()
+    private var entries: [(index: Int, tab: PaneTabPresentation)] = []
+    private let selectionHandler: (Int) -> Void
+
+    init(selectionHandler: @escaping (Int) -> Void) {
+        self.selectionHandler = selectionHandler
+        super.init(frame: .zero)
+        wantsLayer = true
+
+        materialView.material = .hudWindow
+        materialView.blendingMode = .behindWindow
+        materialView.state = .active
+        materialView.wantsLayer = true
+        materialView.layer?.cornerRadius = 8
+        materialView.layer?.masksToBounds = true
+
+        tintView.wantsLayer = true
+        tintView.layer?.cornerRadius = 8
+        tintView.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.13).cgColor
+
+        button.isBordered = false
+        button.font = .systemFont(ofSize: 11, weight: .semibold)
+        button.contentTintColor = NSColor.white.withAlphaComponent(0.94)
+        button.target = self
+        button.action = #selector(showMenu)
+
+        addSubview(materialView)
+        addSubview(tintView)
+        addSubview(button)
     }
 
-    private func updateMoveControlsVisibility() {
-        moveButtonStack.isHidden = !shouldShowMoveControls
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(entries: [(index: Int, tab: PaneTabPresentation)]) {
+        self.entries = entries
+        button.title = "+\(entries.count)"
+        button.toolTip = "还有 \(entries.count) 个窗口"
+    }
+
+    override func layout() {
+        super.layout()
+        materialView.frame = bounds
+        tintView.frame = bounds
+        button.frame = bounds
+    }
+
+    @objc private func showMenu() {
+        let menu = NSMenu()
+        for entry in entries {
+            let item = NSMenuItem(title: entry.tab.title, action: #selector(pick(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = entry.index
+            item.image = entry.tab.applicationIcon
+            menu.addItem(item)
+        }
+        menu.popUp(positioning: nil, at: CGPoint(x: 0, y: bounds.height + 4), in: self)
+    }
+
+    @objc private func pick(_ sender: NSMenuItem) {
+        selectionHandler(sender.tag)
     }
 }
 
 @MainActor
 final class PaneTabBarPanel: OverlayPanel {
     private static let horizontalInset: CGFloat = 6
-    private static let tabWidth: CGFloat = 154
-    private static let tabSpacing: CGFloat = 4
+    private static let verticalInset: CGFloat = 4
+    private static let animationDuration: TimeInterval = 0.18
 
     private let selectionHandler: (Int) -> Void
     private let closeHandler: (Int) -> Void
     private let moveHandler: (Int, PaneMoveDirection) -> Void
     private let moveDirections: [PaneMoveDirection]
     private var availableFrame: CGRect
-    private let scrollView = NSScrollView()
     private let tabStripView = NSView()
     private var tabItemViews: [PaneTabItemView] = []
+    private lazy var overflowButton = PaneTabOverflowButton { [weak self] index in
+        self?.selectionHandler(index)
+    }
     private var tabs: [PaneTabPresentation]
     private var selectedIndex: Int
+    private var stripLayout: PaneTabStripLayout?
 
     init(
         frame: CGRect,
@@ -455,8 +564,8 @@ final class PaneTabBarPanel: OverlayPanel {
         )
 
         configurePanel()
-        configureTabStrip()
-        rebuildTabs()
+        contentView?.addSubview(tabStripView)
+        applyLayout(animated: false)
     }
 
     @available(*, unavailable)
@@ -477,109 +586,152 @@ final class PaneTabBarPanel: OverlayPanel {
         contentView?.layer?.backgroundColor = NSColor.clear.cgColor
     }
 
-    private func configureTabStrip() {
-        guard let contentView else { return }
-        scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.borderType = .noBorder
-        scrollView.documentView = tabStripView
-        contentView.addSubview(scrollView)
+    func updateTabs(_ tabs: [PaneTabPresentation], selectedIndex: Int, frame: CGRect) {
+        let resolvedSelection = tabs.indices.contains(selectedIndex) ? selectedIndex : -1
+        guard
+            tabs != self.tabs
+                || resolvedSelection != self.selectedIndex
+                || frame != availableFrame
+        else {
+            return
+        }
+        // 窗格尺寸变了（换屏）直接落位；Tab 增删、切换才做过渡动画。
+        let animated = frame.size == availableFrame.size && isVisible
+        availableFrame = frame
+        self.tabs = tabs
+        self.selectedIndex = resolvedSelection
+        applyLayout(animated: animated)
     }
 
-    private func rebuildTabs() {
-        tabStripView.subviews.forEach { $0.removeFromSuperview() }
-        tabItemViews.removeAll(keepingCapacity: true)
+    /// 复用已有 Tab 视图，只增删差额并就地更新内容；
+    /// 宽度、位置变化用短动画过渡，不再整条销毁重建，避免切换时整条闪一下。
+    private func applyLayout(animated: Bool) {
+        let itemHeight = max(0, availableFrame.height - Self.verticalInset * 2)
+        let layout = PaneTabStripLayout.make(
+            tabCount: tabs.count,
+            selectedIndex: selectedIndex,
+            moveCount: moveDirections.count,
+            availableWidth: availableFrame.width - Self.horizontalInset * 2
+        )
+        let previousLayout = stripLayout
+        stripLayout = layout
 
-        let itemHeight = max(0, availableFrame.height - 8)
-        for (index, tab) in tabs.enumerated() {
+        while tabItemViews.count > layout.visibleIndices.count {
+            tabItemViews.removeLast().removeFromSuperview()
+        }
+        var insertedViews: [PaneTabItemView] = []
+        while tabItemViews.count < layout.visibleIndices.count {
             let item = PaneTabItemView(
-                tab: tab,
-                isSelected: index == selectedIndex,
                 moveDirections: moveDirections,
-                selectionHandler: { [weak self] in self?.selectionHandler(index) },
-                closeHandler: { [weak self] in self?.closeHandler(index) },
-                moveHandler: { [weak self] direction in
-                    self?.moveHandler(index, direction)
-                }
+                selectionHandler: { [weak self] index in self?.selectionHandler(index) },
+                closeHandler: { [weak self] index in self?.closeHandler(index) },
+                moveHandler: { [weak self] index, direction in self?.moveHandler(index, direction) }
             )
+            let slot = tabItemViews.count
             item.frame = CGRect(
-                x: CGFloat(index) * (Self.tabWidth + Self.tabSpacing),
+                x: layout.tabOriginX(atSlot: slot),
                 y: 0,
-                width: Self.tabWidth,
+                width: layout.tabWidth,
                 height: itemHeight
             )
             tabStripView.addSubview(item)
             tabItemViews.append(item)
+            insertedViews.append(item)
         }
 
-        let stripWidth = CGFloat(tabs.count) * Self.tabWidth
-            + CGFloat(max(0, tabs.count - 1)) * Self.tabSpacing
-        pinToAvailableFrame(stripWidth: stripWidth)
-        scrollView.frame = contentView?.bounds.insetBy(dx: Self.horizontalInset, dy: 4) ?? .zero
-        scrollView.hasHorizontalScroller = stripWidth > scrollView.bounds.width
+        for (slot, tabIndex) in layout.visibleIndices.enumerated() {
+            let item = tabItemViews[slot]
+            item.tabIndex = tabIndex
+            item.displayMode = layout.mode
+            item.update(tab: tabs[tabIndex], isSelected: tabIndex == selectedIndex)
+        }
+
+        if layout.showsOverflow {
+            if overflowButton.superview == nil {
+                tabStripView.addSubview(overflowButton)
+            }
+            overflowButton.update(entries: layout.hiddenIndices.map { ($0, tabs[$0]) })
+        } else {
+            overflowButton.removeFromSuperview()
+        }
+
+        let stripWidth = layout.stripWidth
+        let panelWidth = min(availableFrame.width, stripWidth + Self.horizontalInset * 2)
+        let targetPanelFrame = CGRect(
+            x: availableFrame.minX,
+            y: availableFrame.minY,
+            width: panelWidth,
+            height: availableFrame.height
+        )
+        let isShrinking = targetPanelFrame.width < frame.width
+        let shouldAnimate = animated && previousLayout != nil
+
+        // 变宽时先把面板撑开再播放动画；变窄时等动画结束再收，免得尾部被截掉。
+        if !shouldAnimate || !isShrinking {
+            setFrameIfNeeded(targetPanelFrame)
+        }
         tabStripView.frame = CGRect(
-            origin: .zero,
-            size: CGSize(width: max(stripWidth, scrollView.bounds.width), height: itemHeight)
+            x: Self.horizontalInset,
+            y: Self.verticalInset,
+            width: max(stripWidth, frame.width - Self.horizontalInset * 2),
+            height: itemHeight
         )
 
-        if tabs.indices.contains(selectedIndex) {
-            tabStripView.scrollToVisible(
-                CGRect(
-                    x: CGFloat(selectedIndex) * (Self.tabWidth + Self.tabSpacing),
+        let placeItems = { [self] (animate: Bool) in
+            for slot in tabItemViews.indices {
+                let target = CGRect(
+                    x: layout.tabOriginX(atSlot: slot),
                     y: 0,
-                    width: Self.tabWidth,
+                    width: layout.tabWidth,
                     height: itemHeight
                 )
-            )
+                if animate {
+                    tabItemViews[slot].animator().frame = target
+                } else {
+                    tabItemViews[slot].frame = target
+                }
+            }
+            if layout.showsOverflow {
+                let target = CGRect(
+                    x: layout.overflowOriginX,
+                    y: 0,
+                    width: PaneTabStripLayout.overflowWidth,
+                    height: itemHeight
+                )
+                if animate {
+                    overflowButton.animator().frame = target
+                } else {
+                    overflowButton.frame = target
+                }
+            }
         }
-    }
 
-    func updateTabs(_ tabs: [PaneTabPresentation], selectedIndex: Int, frame: CGRect) {
-        let sizeChanged = availableFrame.size != frame.size
-        availableFrame = frame
-        let tabsChanged = self.tabs != tabs
-        self.tabs = tabs
-        self.selectedIndex = tabs.indices.contains(selectedIndex) ? selectedIndex : -1
-        if tabsChanged || tabItemViews.count != tabs.count || sizeChanged {
-            rebuildTabs()
+        guard shouldAnimate else {
+            placeItems(false)
             return
         }
 
-        pinToAvailableFrame()
-        for (index, item) in tabItemViews.enumerated() {
-            item.updateSelection(index == self.selectedIndex)
+        for item in insertedViews {
+            item.alphaValue = 0
         }
-
-        if tabs.indices.contains(self.selectedIndex) {
-            tabStripView.scrollToVisible(
-                CGRect(
-                    x: CGFloat(self.selectedIndex) * (Self.tabWidth + Self.tabSpacing),
-                    y: 0,
-                    width: Self.tabWidth,
-                    height: max(0, availableFrame.height - 8)
-                )
-            )
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.animationDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            context.allowsImplicitAnimation = true
+            placeItems(true)
+            for item in insertedViews {
+                item.animator().alphaValue = 1
+            }
+        } completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.stripLayout == layout else { return }
+                self.setFrameIfNeeded(targetPanelFrame)
+            }
         }
     }
 
-    private func pinToAvailableFrame(stripWidth: CGFloat? = nil) {
-        let resolvedStripWidth = stripWidth ?? (
-            CGFloat(tabs.count) * Self.tabWidth
-                + CGFloat(max(0, tabs.count - 1)) * Self.tabSpacing
-        )
-        let panelWidth = min(
-            availableFrame.width,
-            resolvedStripWidth + Self.horizontalInset * 2
-        )
-        setFrame(
-            CGRect(
-                x: availableFrame.minX,
-                y: availableFrame.minY,
-                width: panelWidth,
-                height: availableFrame.height
-            ),
-            display: true
-        )
+    private func setFrameIfNeeded(_ target: CGRect) {
+        guard frame != target else { return }
+        setFrame(target, display: true)
     }
 }

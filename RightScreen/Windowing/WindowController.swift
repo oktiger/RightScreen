@@ -39,6 +39,19 @@ final class WindowController {
         return positionResult == .success && sizeResult == .success
     }
 
+    /// 窗口被最小化到 Dock 时把它还原。返回 true 表示确实做了还原。
+    @discardableResult
+    func restoreIfMinimized(_ window: ManagedWindow) -> Bool {
+        guard AXHelpers.bool(kAXMinimizedAttribute as CFString, of: window.element) == true else {
+            return false
+        }
+        return AXUIElementSetAttributeValue(
+            window.element,
+            kAXMinimizedAttribute as CFString,
+            kCFBooleanFalse
+        ) == .success
+    }
+
     func frameMatches(_ window: ManagedWindow, accessibilityFrame expected: CGRect) -> Bool {
         guard let actual = AXHelpers.frame(of: window.element) else { return false }
         return PaneFrameFit.matches(actual, expected: expected)
@@ -47,6 +60,20 @@ final class WindowController {
     @discardableResult
     func setAppKitFrame(_ frame: CGRect, for window: ManagedWindow) -> Bool {
         setAccessibilityFrame(ScreenIdentity.convertFrame(frame), for: window)
+    }
+
+    /// 窗口已经在目标位置时不再写 AX：重复写同一个 frame 也会让 Chrome 等重排一次内容，看起来就是一顿。
+    @discardableResult
+    func setAppKitFrameIfNeeded(_ frame: CGRect, for window: ManagedWindow) -> Bool {
+        let expected = ScreenIdentity.convertFrame(frame)
+        if let actual = AXHelpers.frame(of: window.element),
+           abs(actual.minX - expected.minX) <= 1,
+           abs(actual.minY - expected.minY) <= 1,
+           abs(actual.width - expected.width) <= 1,
+           abs(actual.height - expected.height) <= 1 {
+            return true
+        }
+        return setAccessibilityFrame(expected, for: window)
     }
 
     /// 前置窗口。已经关掉的窗口一律不碰。
