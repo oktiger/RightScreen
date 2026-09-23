@@ -60,7 +60,8 @@ struct BentoEngineTests {
             gap: 8
         )
         let layout = BentoEngine.layout(updated, in: frame, gap: 8)
-        let expectedFirst = floor(992 * (300.0 / 992.0))
+        // 显式 CGFloat：与 frame.width 同类型，避免 #expect 宏里 CGFloat/Double 混比误判。
+        let expectedFirst: CGFloat = floor(992 * (300.0 / 992.0))
         #expect(layout.leaves[0].frame.width == expectedFirst)
         #expect(layout.leaves[0].frame.width + 8 + layout.leaves[1].frame.width == 1000)
     }
