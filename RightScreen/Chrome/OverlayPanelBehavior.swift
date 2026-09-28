@@ -9,11 +9,13 @@ class OverlayPanel: NSPanel {
 }
 
 extension NSPanel {
-    /// 浮层只留在当前 Space，且不进入 Mission Control / 窗口循环。
+    /// 浮层只留在布局所在的 Space，且不进入原生全屏 / 窗口循环。
     ///
     /// 禁止 `canJoinAllSpaces`：WindowServer 在 Chrome 等进入原生全屏、
     /// 创建专用 Space 时，会把「加入所有空间」的窗口当成冲突项，
     /// 于是弹出四指上滑那样的 Mission Control，而不是直接切到全屏 Space。
+    /// `fullScreenAuxiliary` 同样会让浮层跟随全屏窗口进入专用 Space；
+    /// 浏览器视频全屏属于别的 App，Tab 栏和分隔条不能跟进去。
     func applyOverlaySpaceBehavior() {
         isFloatingPanel = true
         becomesKeyOnlyIfNeeded = true
@@ -24,7 +26,7 @@ extension NSPanel {
             .transient,
             .stationary,
             .ignoresCycle,
-            .fullScreenAuxiliary
+            .fullScreenNone
         ]
     }
 }

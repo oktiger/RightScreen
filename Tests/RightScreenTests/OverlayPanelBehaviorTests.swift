@@ -3,7 +3,7 @@ import Testing
 @testable import RightScreen
 
 struct OverlayPanelBehaviorTests {
-    @Test @MainActor func overlaySpaceBehaviorDoesNotJoinAllSpaces() {
+    @Test @MainActor func overlaySpaceBehaviorStaysOutOfNativeFullScreen() {
         let panel = NSPanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -14,7 +14,8 @@ struct OverlayPanelBehaviorTests {
 
         #expect(!panel.collectionBehavior.contains(.canJoinAllSpaces))
         #expect(panel.collectionBehavior.contains(.transient))
-        #expect(panel.collectionBehavior.contains(.fullScreenAuxiliary))
+        #expect(panel.collectionBehavior.contains(.fullScreenNone))
+        #expect(!panel.collectionBehavior.contains(.fullScreenAuxiliary))
         #expect(panel.collectionBehavior.contains(.ignoresCycle))
         #expect(panel.collectionBehavior.contains(.stationary))
         #expect(!panel.isRestorable)

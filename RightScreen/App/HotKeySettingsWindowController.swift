@@ -32,7 +32,7 @@ final class HotKeySettingsWindowController: NSWindowController {
         window.isReleasedWhenClosed = false
         window.level = .floating
         window.isExcludedFromWindowsMenu = true
-        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .ignoresCycle]
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenNone, .ignoresCycle]
         window.orderOut(nil)
 
         super.init(window: window)
