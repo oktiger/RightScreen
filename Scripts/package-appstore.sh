@@ -63,7 +63,8 @@ fi
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/rightscreen-appstore.XXXXXX")"
 trap 'rm -rf "$work_dir"' EXIT
 profile_plist="$work_dir/profile.plist"
-security cms -D -i "$profile_path" > "$profile_plist"
+cp "$profile_path" "$work_dir/profile.provisionprofile"
+security cms -D -i "$work_dir/profile.provisionprofile" > "$profile_plist"
 profile_value() {
     /usr/libexec/PlistBuddy -c "Print :$1" "$profile_plist" 2>/dev/null
 }
@@ -88,13 +89,14 @@ build_flags=(-c release --arch arm64 --arch x86_64)
 swift build "${build_flags[@]}"
 bin_dir="$(swift build "${build_flags[@]}" --show-bin-path)"
 
-rm -rf "$dist_dir"
+# 只清理本脚本的产物；描述文件、截图等可能也放在 dist/AppStore 下。
+rm -rf "$app_path" "$pkg_path"
 mkdir -p "$dist_dir"
 "$project_dir/Scripts/package-app.sh" --unsigned "$bin_dir/RightScreen" "$app_path"
 
 build_number="${RIGHTSCREEN_BUILD_NUMBER:-$(git -C "$project_dir" rev-list --count HEAD)}"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $build_number" "$app_path/Contents/Info.plist"
-cp "$profile_path" "$app_path/Contents/embedded.provisionprofile"
+cp "$profile_plist:h/profile.provisionprofile" "$app_path/Contents/embedded.provisionprofile"
 
 # 签名用的 entitlements = 仓库里的沙盒声明 + 描述文件要求的 App ID / Team ID。
 entitlements="$work_dir/RightScreen.entitlements"

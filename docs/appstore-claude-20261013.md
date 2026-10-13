@@ -24,7 +24,7 @@ Xcode → 设置 → Accounts → 选中 Team → Manage Certificates → `+`：
 ## 4. 打包与上传
 
 ```bash
-Scripts/package-appstore.sh ~/Downloads/RightScreen_Mac_App_Store.provisionprofile
+Scripts/package-appstore.sh dist/profiles/RightScreen_Mac_App_Store.provisionprofile
 ```
 
 产物：`dist/AppStore/RightScreen.pkg`（universal、沙盒、分发签名）。上传二选一：
