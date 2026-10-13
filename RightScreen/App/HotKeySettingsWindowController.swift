@@ -27,7 +27,7 @@ final class HotKeySettingsWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "快捷键设置"
+        window.title = localized("快捷键设置")
         window.contentViewController = hosting
         window.isReleasedWhenClosed = false
         window.level = .floating

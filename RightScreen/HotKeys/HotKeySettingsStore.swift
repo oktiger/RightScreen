@@ -25,7 +25,7 @@ final class HotKeySettingsStore {
     @discardableResult
     func setChord(_ chord: KeyChord?, for action: HotKeyAction) -> String? {
         if let chord, let other = KeyChord.conflictingAction(for: chord, excluding: action, in: bindings) {
-            return "快捷键已被「\(other.title)」占用"
+            return localized("快捷键已被「%@」占用", other.title)
         }
 
         if let chord {

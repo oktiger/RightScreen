@@ -153,7 +153,7 @@ private struct HotKeyBindingRow: View {
             Text(action.title)
                 .frame(width: 88, alignment: .leading)
 
-            Text(isRecording ? "按下快捷键…" : (chord?.displayString ?? "未设置"))
+            Text(isRecording ? localized("按下快捷键…") : (chord?.displayString ?? localized("未设置")))
                 .font(.body.monospaced())
                 .foregroundStyle(isRecording ? Color.accentColor : Color.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -164,11 +164,11 @@ private struct HotKeyBindingRow: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("移除快捷键")
-                .accessibilityLabel("移除快捷键")
+                .help(localized("移除快捷键"))
+                .accessibilityLabel(localized("移除快捷键"))
             }
 
-            Button(isRecording ? "取消" : "设置") {
+            Button(isRecording ? localized("取消") : localized("设置")) {
                 if isRecording {
                     onCancel()
                 } else {

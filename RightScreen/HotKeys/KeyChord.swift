@@ -73,7 +73,7 @@ struct KeyChord: Codable, Equatable, Hashable, Sendable {
             UInt32(kVK_UpArrow): "↑",
             UInt32(kVK_DownArrow): "↓",
             UInt32(kVK_Return): "↩",
-            UInt32(kVK_Space): "空格",
+            UInt32(kVK_Space): localized("空格"),
             UInt32(kVK_Tab): "⇥",
             UInt32(kVK_Delete): "⌫",
             UInt32(kVK_ForwardDelete): "⌦",

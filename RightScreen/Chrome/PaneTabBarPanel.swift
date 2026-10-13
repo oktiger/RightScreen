@@ -248,7 +248,7 @@ private final class PaneTabItemView: NSView {
         self.moveHandler = moveHandler
         closeButton = PaneTabChromeButton(
             systemSymbolName: "xmark",
-            accessibilityDescription: "关闭窗口",
+            accessibilityDescription: localized("关闭窗口"),
             pointSize: 9,
             style: .destructive
         )
@@ -493,7 +493,7 @@ private final class PaneTabOverflowButton: NSView {
     func update(entries: [(index: Int, tab: PaneTabPresentation)]) {
         self.entries = entries
         button.title = "+\(entries.count)"
-        button.toolTip = "还有 \(entries.count) 个窗口"
+        button.toolTip = entries.count == 1 ? localized("还有 1 个窗口") : localized("还有 %ld 个窗口", entries.count)
     }
 
     override func layout() {

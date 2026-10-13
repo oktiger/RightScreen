@@ -86,7 +86,7 @@ final class WindowIndexer {
                     windowID: record.windowID,
                     ownerPID: record.ownerPID,
                     bundleIdentifier: runningApp.bundleIdentifier,
-                    appName: runningApp.localizedName ?? "应用",
+                    appName: runningApp.localizedName ?? localized("应用"),
                     title: axTitle,
                     frame: axFrame,
                     element: element

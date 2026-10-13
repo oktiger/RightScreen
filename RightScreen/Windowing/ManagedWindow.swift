@@ -19,7 +19,7 @@ struct ManagedWindow {
         let trimmedWindowTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if isGoogleChrome, !trimmedAppName.isEmpty, !trimmedWindowTitle.isEmpty {
-            return "\(trimmedAppName)：\(trimmedWindowTitle)"
+            return localized("%@：%@", trimmedAppName, trimmedWindowTitle)
         }
 
         if !trimmedAppName.isEmpty {

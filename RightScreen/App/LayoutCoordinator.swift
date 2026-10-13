@@ -964,28 +964,28 @@ final class LayoutCoordinator {
             }
         case .blockedByModalDialog:
             showMessage(
-                title: "请先处理对话框",
-                message: "“\(window.appName)”当前有一个打开、保存或确认对话框正在等待处理。请先完成或取消该对话框，再关闭窗口；窗口布局管理不受影响。"
+                title: localized("请先处理对话框"),
+                message: localized("“%@”当前有一个打开、保存或确认对话框正在等待处理。请先完成或取消该对话框，再关闭窗口；窗口布局管理不受影响。", window.appName)
             )
         case .temporarilyUnavailable:
             showMessage(
-                title: "暂时无法关闭窗口",
-                message: "macOS 辅助功能服务暂时没有响应。RightScreen 已自动重试，请稍后再试。"
+                title: localized("暂时无法关闭窗口"),
+                message: localized("macOS 辅助功能服务暂时没有响应。RightScreen 已自动重试，请稍后再试。")
             )
         case .accessibilityPermissionRequired:
             showMessage(
-                title: "需要辅助功能权限",
-                message: "请在“系统设置 → 隐私与安全性 → 辅助功能”中允许 RightScreen，然后重试。"
+                title: localized("需要辅助功能权限"),
+                message: localized("请在“系统设置 → 隐私与安全性 → 辅助功能”中允许 RightScreen，然后重试。")
             )
         case .unsupported:
             showMessage(
-                title: "这个窗口不提供关闭控制",
-                message: "RightScreen 仍可管理它的位置和大小，但该窗口没有提供系统关闭按钮。为避免误关窗口或退出整个 App，请使用该 App 自己的关闭按钮。"
+                title: localized("这个窗口不提供关闭控制"),
+                message: localized("RightScreen 仍可管理它的位置和大小，但该窗口没有提供系统关闭按钮。为避免误关窗口或退出整个 App，请使用该 App 自己的关闭按钮。")
             )
         case .failed:
             showMessage(
-                title: "无法关闭窗口",
-                message: "macOS 拒绝了这次关闭请求。请先切换到该窗口并处理其中的提示，然后重试。"
+                title: localized("无法关闭窗口"),
+                message: localized("macOS 拒绝了这次关闭请求。请先切换到该窗口并处理其中的提示，然后重试。")
             )
         }
     }
@@ -1502,7 +1502,7 @@ final class LayoutCoordinator {
 
     private func primaryScreen() -> NSScreen? {
         guard let screen = NSScreen.main ?? NSScreen.screens.first else {
-            showMessage(title: "无法开始布局", message: "RightScreen 未找到可用显示器。")
+            showMessage(title: localized("无法开始布局"), message: localized("RightScreen 未找到可用显示器。"))
             return nil
         }
         return screen
@@ -1512,8 +1512,8 @@ final class LayoutCoordinator {
         let windows = windowIndexer.currentSpaceWindows()
         guard !windows.isEmpty else {
             showMessage(
-                title: "没有可管理窗口",
-                message: "请先打开至少一个普通 App 窗口；最小化、全屏和不可缩放窗口会被跳过。"
+                title: localized("没有可管理窗口"),
+                message: localized("请先打开至少一个普通 App 窗口；最小化、全屏和不可缩放窗口会被跳过。")
             )
             return nil
         }
@@ -1541,7 +1541,7 @@ final class LayoutCoordinator {
         alert.alertStyle = .informational
         alert.messageText = title
         alert.informativeText = message
-        alert.addButton(withTitle: "好")
+        alert.addButton(withTitle: localized("好"))
         alert.runModal()
     }
 }

@@ -26,17 +26,18 @@ enum LayoutKind: String, CaseIterable, Sendable {
 
     var menuTitle: String {
         switch self {
-        case .fullScreen: "全屏"
-        case .split2: "左右二分"
-        case .split3: "左右三等分"
-        case .topBottom: "上下二分"
+        case .fullScreen: localized("全屏")
+        case .split2: localized("左右二分")
+        case .split3: localized("左右三等分")
+        case .topBottom: localized("上下二分")
         case .focusStack: "1+2"
         case .stackFocus: "2+1"
-        case .split4: "四等分"
+        case .split4: localized("四等分")
         }
     }
 
     var menuSubtitle: String {
-        "\(paneCount) 格"
+        // 英文需要区分单复数，1 格单独成键。
+        paneCount == 1 ? localized("1 格") : localized("%ld 格", paneCount)
     }
 }

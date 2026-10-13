@@ -10,7 +10,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private lazy var layoutItems: [(kind: LayoutKind, item: NSMenuItem)] = LayoutKind.allCases.map { kind in
         let item = menuItem(
-            title: "\(kind.menuTitle)（\(kind.menuSubtitle)）",
+            title: localized("%@（%@）", kind.menuTitle, kind.menuSubtitle),
             action: #selector(startLayoutFromMenu(_:)),
             keyEquivalent: ""
         )
@@ -21,7 +21,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private lazy var bentoItem: NSMenuItem = {
         let item = menuItem(
-            title: "网格",
+            title: localized("网格"),
             action: #selector(startBento),
             keyEquivalent: ""
         )
@@ -30,17 +30,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }()
 
     private lazy var exitLayoutItem = menuItem(
-        title: "退出当前布局",
+        title: localized("退出当前布局"),
         action: #selector(exitLayout),
         keyEquivalent: ""
     )
     private lazy var hotKeySettingsItem = menuItem(
-        title: "快捷键设置…",
+        title: localized("快捷键设置…"),
         action: #selector(openHotKeySettings),
         keyEquivalent: ""
     )
     private lazy var permissionItem = menuItem(
-        title: "打开辅助功能权限设置…",
+        title: localized("打开辅助功能权限设置…"),
         action: #selector(openAccessibilitySettings),
         keyEquivalent: ""
     )
@@ -91,7 +91,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(permissionItem)
         menu.addItem(.separator())
-        menu.addItem(menuItem(title: "退出 RightScreen", action: #selector(quit), keyEquivalent: "q"))
+        menu.addItem(menuItem(title: localized("退出 RightScreen"), action: #selector(quit), keyEquivalent: "q"))
         statusItem.menu = menu
     }
 
@@ -141,15 +141,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = "菜单栏图标被系统隐藏"
-        alert.informativeText = """
+        alert.messageText = localized("菜单栏图标被系统隐藏")
+        alert.informativeText = localized("""
         RightScreen 正在运行，但 macOS 没有给它分配菜单栏槽位，图标被停在了看不见的位置。
 
         请打开“系统设置 → 菜单栏”，把 RightScreen 的开关关掉再打开；
         若仍不显示，请检查 Bartender、iBar 等菜单栏管理工具是否把它收进了隐藏区。
-        """
-        alert.addButton(withTitle: "打开菜单栏设置")
-        alert.addButton(withTitle: "稍后")
+        """)
+        alert.addButton(withTitle: localized("打开菜单栏设置"))
+        alert.addButton(withTitle: localized("稍后"))
         if alert.runModal() == .alertFirstButtonReturn {
             Permissions.openMenuBarSettings()
         }
@@ -213,7 +213,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         alert.alertStyle = .warning
         alert.messageText = help.title
         alert.informativeText = help.message
-        alert.addButton(withTitle: "好")
+        alert.addButton(withTitle: localized("好"))
         alert.runModal()
     }
 

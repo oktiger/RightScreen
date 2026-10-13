@@ -47,6 +47,14 @@ mkdir -p "$contents_dir/MacOS" "$contents_dir/Resources"
 cp "$plist_src" "$contents_dir/Info.plist"
 cp "$icon_src" "$contents_dir/Resources/AppIcon.icns"
 cp "$executable_path" "$contents_dir/MacOS/RightScreen"
+# 界面文案的中英翻译表；系统按用户语言选择，其他语言回落到英文（CFBundleDevelopmentRegion）。
+for lproj in "$resources_src"/*.lproj(N); do
+    cp -R "$lproj" "$contents_dir/Resources/"
+done
+if [[ ! -f "$contents_dir/Resources/en.lproj/Localizable.strings" || ! -f "$contents_dir/Resources/zh-Hans.lproj/Localizable.strings" ]]; then
+    print -u2 "打包失败：缺少 en / zh-Hans 的 Localizable.strings"
+    exit 1
+fi
 
 icon_dst="$contents_dir/Resources/AppIcon.icns"
 if [[ ! -f "$icon_dst" ]]; then

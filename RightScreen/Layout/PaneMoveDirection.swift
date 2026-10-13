@@ -15,10 +15,10 @@ enum PaneMoveDirection: String, CaseIterable, Sendable {
 
     var tooltip: String {
         switch self {
-        case .left: "移到左侧"
-        case .right: "移到右侧"
-        case .up: "移到上方"
-        case .down: "移到下方"
+        case .left: localized("移到左侧")
+        case .right: localized("移到右侧")
+        case .up: localized("移到上方")
+        case .down: localized("移到下方")
         }
     }
 }

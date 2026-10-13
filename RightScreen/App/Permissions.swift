@@ -11,25 +11,25 @@ enum Permissions {
 
     /// 返回会破坏 TCC 身份连续性的打包问题；nil 表示证书签名与 Bundle ID 均符合约束。
     static var signingIssue: String? {
-        let actualBundleIdentifier = Bundle.main.bundleIdentifier ?? "<空>"
+        let actualBundleIdentifier = Bundle.main.bundleIdentifier ?? localized("<空>")
         guard actualBundleIdentifier == expectedBundleIdentifier else {
-            return "Bundle ID 已变为 \(actualBundleIdentifier)，预期为 \(expectedBundleIdentifier)。"
+            return localized("Bundle ID 已变为 %@，预期为 %@。", actualBundleIdentifier, expectedBundleIdentifier)
         }
 
         var code: SecCode?
         guard SecCodeCopySelf([], &code) == errSecSuccess, let code else {
-            return "无法读取当前进程的代码签名。"
+            return localized("无法读取当前进程的代码签名。")
         }
 
         var staticCode: SecStaticCode?
         guard SecCodeCopyStaticCode(code, SecCSFlags(), &staticCode) == errSecSuccess,
               let staticCode
         else {
-            return "无法读取当前 app 的静态代码签名。"
+            return localized("无法读取当前 app 的静态代码签名。")
         }
 
         guard SecStaticCodeCheckValidity(staticCode, SecCSFlags(), nil) == errSecSuccess else {
-            return "当前 app 的代码签名已损坏或与内容不匹配。"
+            return localized("当前 app 的代码签名已损坏或与内容不匹配。")
         }
 
         var information: CFDictionary?
@@ -37,7 +37,7 @@ enum Permissions {
         guard SecCodeCopySigningInformation(staticCode, flags, &information) == errSecSuccess,
               let information = information as? [String: Any]
         else {
-            return "无法读取当前 app 的签名证书信息。"
+            return localized("无法读取当前 app 的签名证书信息。")
         }
 
         if let certificates = information[kSecCodeInfoCertificates as String] as? [Any],
@@ -45,7 +45,7 @@ enum Permissions {
             return nil
         }
 
-        return "当前 app 使用了临时 adhoc/linker-signed 签名。"
+        return localized("当前 app 使用了临时 adhoc/linker-signed 签名。")
     }
 
     /// 弹出系统辅助功能授权框（如需要）。不要与自定义 Alert 叠在一起调用。
@@ -97,22 +97,22 @@ enum Permissions {
     static func accessibilityHelpMessage(signingIssue: String?) -> (title: String, message: String) {
         if let signingIssue {
             return (
-                "辅助功能授权无法保持",
-                """
-                当前安装包身份不正确：\(signingIssue)
+                localized("辅助功能授权无法保持"),
+                localized("""
+                当前安装包身份不正确：%@
 
                 请退出应用后执行：
                 Scripts/run-local.sh
                 将应用重新安装到 /Applications/RightScreen.app。
 
                 然后在“系统设置 → 隐私与安全性 → 辅助功能”中删除旧的 RightScreen 条目，再重新勾选一次即可长期有效。
-                """
+                """, signingIssue)
             )
         }
 
         return (
-            "需要辅助功能权限",
-            "请在“系统设置 → 隐私与安全性 → 辅助功能”中允许 RightScreen，然后再次选择布局。"
+            localized("需要辅助功能权限"),
+            localized("请在“系统设置 → 隐私与安全性 → 辅助功能”中允许 RightScreen，然后再次选择布局。")
         )
     }
 }

@@ -7,11 +7,11 @@ enum HotKeyAction: String, CaseIterable, Codable, Sendable {
 
     var title: String {
         switch self {
-        case .moveLeft: "移到左侧"
-        case .moveRight: "移到右侧"
-        case .moveUp: "移到上方"
-        case .moveDown: "移到下方"
-        case .fullScreen: "全屏"
+        case .moveLeft: localized("移到左侧")
+        case .moveRight: localized("移到右侧")
+        case .moveUp: localized("移到上方")
+        case .moveDown: localized("移到下方")
+        case .fullScreen: localized("全屏")
         }
     }
 
@@ -39,14 +39,14 @@ enum HotKeySettingsSection: String, CaseIterable, Sendable {
 
     var title: String {
         switch self {
-        case .moveWindow: "移动窗口"
-        case .layout: "布局"
+        case .moveWindow: localized("移动窗口")
+        case .layout: localized("布局")
         }
     }
 
     var footer: String? {
         switch self {
-        case .moveWindow: "仅在 Tab Mode 中生效，效果与 Tab 栏箭头相同。全屏 1 格时，左右快捷键会切换到左右二分。"
+        case .moveWindow: localized("仅在 Tab Mode 中生效，效果与 Tab 栏箭头相同。全屏 1 格时，左右快捷键会切换到左右二分。")
         case .layout: nil
         }
     }
