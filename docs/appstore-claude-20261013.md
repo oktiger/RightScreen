@@ -42,6 +42,7 @@ Scripts/package-appstore.sh dist/profiles/RightScreen_Mac_App_Store.provisionpro
 - 新建 App：平台 macOS，名称 RightScreen（被占用则改名），主要语言简体中文，Bundle ID 选上面那个，SKU 例：`rightscreen-mac`。
 - 类别：效率（Productivity）。
 - App Store Connect：RightScreen（Apple ID 6822256407），版本 1.0，审核通过后自动发布。
+- 本地化：主要语言英语（美国），另有简体中文；名称、副标题、宣传文本、描述、关键词、截图两种语言各一套。App 界面同样中英双语（见 `RightScreen/Resources/*.lproj`）。
 - 价格：免费。
 - 销售范围：174 个国家或地区，暂不含中国大陆（需 ICP 备案号；备案后在「App 信息 → 中国大陆 ICP 备案号」填写并在「价格与销售范围」加回）。
 - 隐私政策 URL：`https://oktiger.github.io/RightScreen/privacy.html`
