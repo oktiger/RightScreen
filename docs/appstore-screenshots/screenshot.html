@@ -6,7 +6,7 @@
 <!--
   App Store 截图源文件。按 1440×900 CSS 像素绘制，render.sh 以 2x 渲染为 2880×1800。
   Tab 栏、网格分隔条、拖动预览的尺寸与配色取自 RightScreen/Chrome 下的实现常量。
-  ?scene=split | quad | grid | drag
+  ?scene=split | quad | grid | drag & lang=zh | en
 -->
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -94,13 +94,13 @@ body {
 
 /* 菜单 */
 .menu {
-    position: absolute; z-index: 60; width: 236px; padding: 5px;
+    position: absolute; z-index: 60; width: 262px; padding: 5px;
     background: rgba(242,242,244,.86); backdrop-filter: blur(30px);
     border-radius: 10px; box-shadow: 0 0 0 0.5px rgba(0,0,0,.22), 0 14px 40px rgba(0,0,0,.3);
     font-size: 13px;
 }
 .menu .h { padding: 4px 10px 2px; font-size: 11px; font-weight: 600; color: rgba(0,0,0,.45); }
-.menu .i { height: 24px; padding: 0 10px 0 24px; display: flex; align-items: center; gap: 8px; border-radius: 5px; position: relative; }
+.menu .i { height: 24px; white-space: nowrap; padding: 0 10px 0 24px; display: flex; align-items: center; gap: 8px; border-radius: 5px; position: relative; }
 .menu .i.on::before { content: "✓"; position: absolute; left: 8px; font-size: 12px; }
 .menu .i.hl { background: #0a6cff; color: #fff; }
 .menu .i.hl rect { fill: #fff; }
@@ -119,10 +119,15 @@ body {
 </div>
 <script>
 const W = 1440, H = 900, MENU = 24;
+const params = new URLSearchParams(location.search);
+const LANG = params.get("lang") === "en" ? "en" : "zh";
+document.documentElement.lang = LANG === "en" ? "en" : "zh-CN";
+// 菜单与 Tab 文案须与 App 的 Localizable.strings 保持一致。
+const t = (zh, en) => (LANG === "en" ? en : zh);
 const ICON = name => `icons/${name}.png`;
 const APP = {
-    safari: "Safari", xcode: "Xcode", terminal: "终端", notes: "备忘录",
-    textedit: "文本编辑", preview: "预览", finder: "访达", calendar: "日历"
+    safari: "Safari", xcode: "Xcode", terminal: t("终端", "Terminal"), notes: t("备忘录", "Notes"),
+    textedit: t("文本编辑", "TextEdit"), preview: t("预览", "Preview"), finder: t("访达", "Finder"), calendar: t("日历", "Calendar")
 };
 const desk = document.getElementById("desk");
 const add = html => desk.insertAdjacentHTML("beforeend", html);
@@ -131,12 +136,12 @@ const rsGlyph = color => `<svg width="18" height="13" viewBox="0 0 18 13"><rect 
 function menubar(appName, rsActive) {
     add(`<div class="menubar">
         <b>${appName}</b>
-        <span>文件</span><span>编辑</span><span>显示</span><span>窗口</span><span>帮助</span>
+        ${[t("文件", "File"), t("编辑", "Edit"), t("显示", "View"), t("窗口", "Window"), t("帮助", "Help")].map(m => `<span>${m}</span>`).join("")}
         <div class="right">
             <span class="status-rs ${rsActive ? "active" : ""}">${rsGlyph("#1d1d1f")}</span>
             <svg width="17" height="12" viewBox="0 0 17 12"><path d="M8.5 11.5 L1 4 A10.6 10.6 0 0 1 16 4 Z" fill="#1d1d1f"/></svg>
             <svg width="26" height="12" viewBox="0 0 26 12"><rect x=".5" y=".5" width="22" height="11" rx="3" fill="none" stroke="#1d1d1f" opacity=".5"/><rect x="2" y="2" width="16" height="8" rx="1.5" fill="#1d1d1f"/><rect x="23.5" y="4" width="1.5" height="4" rx=".7" fill="#1d1d1f" opacity=".5"/></svg>
-            <span>10月13日 周二 15:52</span>
+            <span>${t("10月13日 周二 15:52", "Tue Oct 13  3:52 PM")}</span>
         </div>
     </div>`);
 }
@@ -151,12 +156,12 @@ function safari() {
         </div>
         <div style="flex:1;background:#fff;padding:48px 0 0;overflow:hidden">
             <div style="max-width:520px;margin:0 auto;padding:0 32px">
-                <div style="display:flex;align-items:center;gap:14px"><img src="${ICON("rightscreen")}" style="width:58px;height:58px"><div><div style="font-size:28px;font-weight:700">RightScreen</div><div style="color:#6e6e73;font-size:14px;margin-top:2px">macOS 菜单栏窗口管理工具</div></div></div>
-                <p style="margin-top:26px;font-size:15px;line-height:1.7">把桌面上的窗口一键排进窗格，每格顶部有 Tab 栏切换同格窗口；也可以切到网格模式，让所有窗口平铺同时可见。</p>
+                <div style="display:flex;align-items:center;gap:14px"><img src="${ICON("rightscreen")}" style="width:58px;height:58px"><div><div style="font-size:28px;font-weight:700">RightScreen</div><div style="color:#6e6e73;font-size:14px;margin-top:2px">${t("macOS 菜单栏窗口管理工具", "Menu bar window manager for macOS")}</div></div></div>
+                <p style="margin-top:26px;font-size:15px;line-height:1.7">${t("把桌面上的窗口一键排进窗格，每格顶部有 Tab 栏切换同格窗口；也可以切到网格模式，让所有窗口平铺同时可见。", "Arrange every window into panes with one click. Each pane has its own tab bar for switching windows — or switch to Grid Mode to see them all side by side.")}</p>
                 <ul style="margin-top:16px;padding-left:20px;font-size:15px;line-height:1.9">
-                    <li><b>Tab Mode</b>：全屏、二分、三等分、1+2、四等分</li>
-                    <li><b>Grid Mode</b>：自动平铺，拖动分隔条调整大小</li>
-                    <li>「退出布局」把窗口还原到原来的位置</li>
+                    <li><b>Tab Mode</b>${t("：全屏、二分、三等分、1+2、四等分", ": full screen, halves, thirds, 1+2, quarters")}</li>
+                    <li><b>Grid Mode</b>${t("：自动平铺，拖动分隔条调整大小", ": auto-tiling with draggable dividers")}</li>
+                    <li>${t("「退出布局」把窗口还原到原来的位置", "Exit Layout puts every window back where it was")}</li>
                 </ul>
                 <div style="margin-top:28px;height:150px;border-radius:14px;background:linear-gradient(135deg,#dbe7ff,#f1e6ff)"></div>
             </div>
@@ -164,7 +169,7 @@ function safari() {
 }
 
 const swiftCode = [
-    ["c", "/// 连续均分，余数依次补给前面的窗格。"],
+    ["c", t("/// 连续均分，余数依次补给前面的窗格。", "/// Split evenly; the remainder goes to the first panes.")],
     ["", "<k>static func</k> <f>assign</f>&lt;T&gt;(_ items: [T], paneCount: <t>Int</t>) -&gt; [[T]] {"],
     ["", "    <k>guard</k> paneCount &gt; <n>0</n> <k>else</k> { <k>return</k> [] }"],
     ["", ""],
@@ -210,7 +215,7 @@ function xcode() {
                 ${files.map(f => f.startsWith("  ") ? `<div style="padding-left:28px;${f.trim() === "LayoutEngine" ? "background:#0a5fd8;border-radius:5px;color:#fff" : ""}">${f.trim()}.swift</div>` : `<div style="padding-left:12px">▾ ${f}</div>`).join("")}
             </div>
             <div class="mono" style="flex:1;background:#1f1f24;color:#e4e4e8;font-size:12.5px;padding:12px 0;overflow:hidden">
-                <div style="color:#8d8d93;font-size:12px;padding:0 0 10px 16px;font-family:-apple-system">LayoutEngine.swift</div>${lines}
+                <div style="color:#8d8d93;font-size:12px;padding:0 0 10px 16px;font-family:-apple-system,BlinkMacSystemFont,sans-serif">LayoutEngine.swift</div>${lines}
             </div>
         </div>`;
 }
@@ -236,15 +241,15 @@ function terminal() {
 }
 
 function notes() {
-    const items = [["本周计划", "10:24"], ["产品发布清单", "昨天"], ["读书笔记", "星期六"], ["旅行准备", "星期四"]];
-    const todo = [[true, "整理 App Store 截图"], [true, "写隐私政策页面"], [false, "准备审核说明"], [false, "提交 1.0 版本"]];
+    const items = [[t("本周计划", "Weekly Plan"), "10:24"], [t("产品发布清单", "Launch Checklist"), t("昨天", "Yesterday")], [t("读书笔记", "Reading Notes"), t("星期六", "Saturday")], [t("旅行准备", "Trip Prep"), t("星期四", "Thursday")]];
+    const todo = [[true, t("整理 App Store 截图", "Make App Store screenshots")], [true, t("写隐私政策页面", "Write the privacy policy")], [false, t("准备审核说明", "Prepare review notes")], [false, t("提交 1.0 版本", "Submit version 1.0")]];
     return `<div style="flex:1;display:flex;min-height:0">
         <div style="width:210px;background:#f3f2ef;border-right:1px solid #e2e0da;padding:14px 10px">
             <div class="lights" style="margin:2px 6px 18px"><i></i><i></i><i></i></div>
             ${items.map(([t, d], i) => `<div style="padding:8px 10px;border-radius:7px;margin-bottom:2px;${i === 0 ? "background:#f6d34a" : ""}"><div style="font-size:13px;font-weight:600">${t}</div><div style="font-size:11px;color:${i === 0 ? "#5b4a00" : "#8a8a8e"};margin-top:2px">${d}</div></div>`).join("")}
         </div>
         <div style="flex:1;background:#fff;padding:52px 34px 0">
-            <div style="font-size:24px;font-weight:700">本周计划</div>
+            <div style="font-size:24px;font-weight:700">${t("本周计划", "Weekly Plan")}</div>
             <div style="margin-top:16px;font-size:14px;line-height:2.1">
                 ${todo.map(([done, t]) => `<div style="display:flex;align-items:center;gap:10px"><span style="width:16px;height:16px;border-radius:50%;flex:none;${done ? "background:#f2b80a" : "border:1.5px solid #c4c4c8"}"></span><span style="${done ? "color:#8a8a8e;text-decoration:line-through" : ""}">${t}</span></div>`).join("")}
             </div>
@@ -282,13 +287,13 @@ function layoutGlyph(rects) {
 function menu(x, y, activeTitle) {
     const g = 1.5, L = 0, T = 0, Wd = 22, Hd = 16, hw = (Wd - g) / 2, hh = (Hd - g) / 2, tw = (Wd - 2 * g) / 3;
     const items = [
-        ["全屏（1 格）", [[0, 0, 22, 16]]],
-        ["左右二分（2 格）", [[0, 0, hw, 16], [hw + g, 0, hw, 16]]],
-        ["左右三等分（3 格）", [[0, 0, tw, 16], [tw + g, 0, tw, 16], [2 * (tw + g), 0, tw, 16]]],
-        ["上下二分（2 格）", [[0, 0, 22, hh], [0, hh + g, 22, hh]]],
-        ["1+2（3 格）", [[0, 0, hw, 16], [hw + g, 0, hw, hh], [hw + g, hh + g, hw, hh]]],
-        ["2+1（3 格）", [[0, 0, hw, hh], [0, hh + g, hw, hh], [hw + g, 0, hw, 16]]],
-        ["四等分（4 格）", [[0, 0, hw, hh], [hw + g, 0, hw, hh], [0, hh + g, hw, hh], [hw + g, hh + g, hw, hh]]],
+        [t("全屏（1 格）", "Full Screen (1 pane)"), [[0, 0, 22, 16]]],
+        [t("左右二分（2 格）", "Left/Right Split (2 panes)"), [[0, 0, hw, 16], [hw + g, 0, hw, 16]]],
+        [t("左右三等分（3 格）", "Three Columns (3 panes)"), [[0, 0, tw, 16], [tw + g, 0, tw, 16], [2 * (tw + g), 0, tw, 16]]],
+        [t("上下二分（2 格）", "Top/Bottom Split (2 panes)"), [[0, 0, 22, hh], [0, hh + g, 22, hh]]],
+        [t("1+2（3 格）", "1+2 (3 panes)"), [[0, 0, hw, 16], [hw + g, 0, hw, hh], [hw + g, hh + g, hw, hh]]],
+        [t("2+1（3 格）", "2+1 (3 panes)"), [[0, 0, hw, hh], [0, hh + g, hw, hh], [hw + g, 0, hw, 16]]],
+        [t("四等分（4 格）", "Quarters (4 panes)"), [[0, 0, hw, hh], [hw + g, 0, hw, hh], [0, hh + g, hw, hh], [hw + g, hh + g, hw, hh]]],
     ];
     const row = (t, glyph, cls = "") => `<div class="i ${cls}">${glyph}<span>${t}</span></div>`;
     add(`<div class="menu" style="left:${x}px;top:${y}px">
@@ -296,14 +301,14 @@ function menu(x, y, activeTitle) {
         ${items.map(([t, r]) => row(t, layoutGlyph(r), t === activeTitle ? "on" : "")).join("")}
         <div class="sep"></div>
         <div class="h">Grid Mode</div>
-        ${row("网格", layoutGlyph([[0, 0, hw, 16], [hw + g, 0, hw, hh], [hw + g, hh + g, hw, hh]]), "hl")}
+        ${row(t("网格", "Grid"), layoutGlyph([[0, 0, hw, 16], [hw + g, 0, hw, hh], [hw + g, hh + g, hw, hh]]), "hl")}
         <div class="sep"></div>
-        ${row("退出当前布局", "")}
-        ${row("快捷键设置…", "")}
+        ${row(t("退出当前布局", "Exit Current Layout"), "")}
+        ${row(t("快捷键设置…", "Keyboard Shortcuts…"), "")}
         <div class="sep"></div>
-        ${row("打开辅助功能权限设置…", "", "on")}
+        ${row(t("打开辅助功能权限设置…", "Open Accessibility Settings…"), "", "on")}
         <div class="sep"></div>
-        <div class="i"><span>退出 RightScreen</span><span class="k">⌘Q</span></div>
+        <div class="i"><span>${t("退出 RightScreen", "Quit RightScreen")}</span><span class="k">⌘Q</span></div>
     </div>`);
 }
 
@@ -311,8 +316,8 @@ function menu(x, y, activeTitle) {
 const VH = H - MENU;
 const scenes = {
     split: {
-        h: "一键分屏，每格自带 Tab 栏",
-        p: "同格窗口叠成 Tab，点一下切换，箭头把窗口换到另一侧",
+        h: t("一键分屏，每格自带 Tab 栏", "Split your screen. Tabs in every pane."),
+        p: t("同格窗口叠成 Tab，点一下切换，箭头把窗口换到另一侧", "Windows in a pane stack as tabs — click to switch, use the arrows to move them across"),
         app: "Safari",
         draw() {
             tabPane(0, MENU, W / 2, VH, ["safari", "notes", "preview"], ["right"]);
@@ -320,8 +325,8 @@ const scenes = {
         }
     },
     quad: {
-        h: "七种窗格预设，菜单栏一点即用",
-        p: "全屏、二分、三等分、1+2、2+1、四等分，随时退出还原",
+        h: t("七种窗格预设，菜单栏一点即用", "Seven layouts, one click away"),
+        p: t("全屏、二分、三等分、1+2、2+1、四等分，随时退出还原", "Full screen, halves, thirds, 1+2, 2+1 and quarters — exit anytime to restore"),
         app: "Xcode",
         rs: true,
         draw() {
@@ -330,13 +335,13 @@ const scenes = {
             tabPane(hw, MENU, hw, hh, ["xcode"], ["left", "down"]);
             tabPane(0, MENU + hh, hw, hh, ["notes", "textedit", "calendar"], ["up", "right"]);
             tabPane(hw, MENU + hh, hw, hh, ["terminal", "finder"], ["up", "left"]);
-            menu(1076, MENU + 2, "四等分（4 格）");
+            menu(1050, MENU + 2, t("四等分（4 格）", "Quarters (4 panes)"));
         }
     },
     grid: {
-        h: "网格模式：所有窗口同时可见",
-        p: "自动平铺，一窗一格，格间留出 8pt 间距",
-        app: "终端",
+        h: t("网格模式：所有窗口同时可见", "Grid Mode: every window in view"),
+        p: t("自动平铺，一窗一格，格间留出 8pt 间距", "Auto-tiled, one window per cell, with 8pt gaps"),
+        app: APP.terminal,
         draw() {
             const gap = 8, top = MENU + gap, fullH = VH - 2 * gap;
             const lw = (W - 3 * gap) / 2, rx = gap * 2 + lw, rh = (fullH - gap) / 2;
@@ -348,8 +353,8 @@ const scenes = {
         }
     },
     drag: {
-        h: "拖动分隔条，尺寸实时预览",
-        p: "显示应用图标与宽 × 高，松手后窗口一次到位",
+        h: t("拖动分隔条，尺寸实时预览", "Drag a divider. Preview the size live."),
+        p: t("显示应用图标与宽 × 高，松手后窗口一次到位", "See each app’s icon and width × height — windows snap into place on release"),
         app: "Safari",
         draw() {
             const gap = 8, top = MENU + gap, fullH = VH - 2 * gap;
@@ -359,7 +364,7 @@ const scenes = {
             const tile = (x, y, w, h, icon, name) => add(`<div class="preview" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px"><img src="${ICON(icon)}"><div class="n">${name}</div><div class="d">${Math.round(w)} × ${Math.round(h)}</div></div>`);
             tile(gap, top, lw, fullH, "safari", "Safari");
             tile(rx, top, rw, rh, "xcode", "Xcode");
-            tile(rx, top + rh + gap, rw, rh, "terminal", "终端");
+            tile(rx, top + rh + gap, rw, rh, "terminal", APP.terminal);
             const hx = gap + lw + gap / 2, hy = top + fullH / 2;
             add(`<div class="handle" style="left:${hx - 2}px;top:${hy - 14}px;width:4px;height:28px"></div>`);
             add(`<svg class="cursor" style="left:${hx - 16}px;top:${hy + 18}px" width="32" height="20" viewBox="0 0 32 20"><path d="M2 10 L9 3 V7.5 H23 V3 L30 10 L23 17 V12.5 H9 V17 Z" fill="#000" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>`);
@@ -367,7 +372,7 @@ const scenes = {
     }
 };
 
-const scene = scenes[new URLSearchParams(location.search).get("scene") || "split"];
+const scene = scenes[params.get("scene") || "split"];
 document.getElementById("h").textContent = scene.h;
 document.getElementById("p").textContent = scene.p;
 menubar(scene.app, scene.rs);

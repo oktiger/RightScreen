@@ -1,7 +1,7 @@
 #!/bin/zsh
 set -euo pipefail
 
-# 用 Chrome 无头模式把 screenshot.html 的各场景渲染成 2880×1800（Mac App Store 16:10）。
+# 用 Chrome 无头模式把 screenshot.html 的各场景按中英文分别渲染成 2880×1800（Mac App Store 16:10）。
 source_dir="${0:A:h}"
 project_dir="${source_dir:h:h}"
 out_dir="$project_dir/dist/AppStore/screenshots"
@@ -42,16 +42,18 @@ SWIFT
 profile_dir="$(mktemp -d "${TMPDIR:-/tmp}/rightscreen-shot.XXXXXX")"
 trap 'rm -rf "$profile_dir"' EXIT
 
+for lang in zh en; do
 index=1
+mkdir -p "$out_dir/$lang"
 for scene in split quad grid drag; do
-    output="$out_dir/$index-$scene.png"
+    output="$out_dir/$lang/$index-$scene.png"
     "$chrome" --headless=new --disable-gpu --hide-scrollbars \
         --user-data-dir="$profile_dir" \
         --allow-file-access-from-files \
         --window-size=1440,900 --force-device-scale-factor=2 \
         --virtual-time-budget=2000 \
         --screenshot="$output" \
-        "file://$source_dir/screenshot.html?scene=$scene" >/dev/null 2>&1
+        "file://$source_dir/screenshot.html?scene=$scene&lang=$lang" >/dev/null 2>&1
     size="$(sips -g pixelWidth -g pixelHeight "$output" | awk '/pixel/{printf "%s ", $2}')"
     if [[ "$size" != "2880 1800 " ]]; then
         print -u2 "尺寸不对：$output（$size）"
@@ -59,4 +61,5 @@ for scene in split quad grid drag; do
     fi
     print -- "$output"
     index=$((index + 1))
+done
 done
