@@ -9,8 +9,9 @@ set -euo pipefail
 #   RIGHTSCREEN_BUILD_NUMBER          CFBundleVersion，默认取 git 提交数（单调递增，满足每次上传须更大）
 #   RIGHTSCREEN_APP_SIGN_IDENTITY     默认自动查找 "Apple Distribution" / "3rd Party Mac Developer Application"
 #   RIGHTSCREEN_INSTALLER_SIGN_IDENTITY 默认自动查找 "3rd Party Mac Developer Installer" / "Mac Installer Distribution"
-#   ASC_KEY_ID / ASC_ISSUER_ID        --upload 时使用的 App Store Connect API Key；
-#                                     私钥放在 ~/.appstoreconnect/private_keys/AuthKey_<ASC_KEY_ID>.p8
+#
+# --upload：把签好的 app 包成 xcarchive，交给 xcodebuild -exportArchive 上传，
+# 使用 Xcode → 设置 → Accounts 里已登录的开发者账号，无需 API Key 或密码。
 
 if [[ $# -lt 1 || $# -gt 2 || ( $# -eq 2 && "$2" != "--upload" ) ]]; then
     print -u2 "用法：$0 <Mac App Store 描述文件.provisionprofile> [--upload]"
@@ -128,11 +129,58 @@ print -- "版本：$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionStri
 print -- "架构：$(lipo -archs "$app_path/Contents/MacOS/RightScreen")"
 
 if [[ "$upload" == "--upload" ]]; then
-    if [[ -z "${ASC_KEY_ID:-}" || -z "${ASC_ISSUER_ID:-}" ]]; then
-        print -u2 "上传需要 ASC_KEY_ID 与 ASC_ISSUER_ID（App Store Connect → 用户和访问 → 集成 → API 密钥）。"
-        exit 1
-    fi
-    xcrun altool --validate-app -f "$pkg_path" -t macos --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
-    xcrun altool --upload-app -f "$pkg_path" -t macos --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
-    print -- "已上传，构建处理完成后可在 App Store Connect → TestFlight / 版本中选择。"
+    # xcodebuild 按名称查找描述文件，需先装到 Xcode 的描述文件目录。
+    profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$profile_plist")"
+    installed_profiles="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+    mkdir -p "$installed_profiles"
+    cp "$work_dir/profile.provisionprofile" "$installed_profiles/$profile_uuid.provisionprofile"
+
+    archive_path="$work_dir/RightScreen.xcarchive"
+    mkdir -p "$archive_path/Products/Applications"
+    ditto "$app_path" "$archive_path/Products/Applications/RightScreen.app"
+    short_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_path/Contents/Info.plist")"
+    cat > "$archive_path/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>ApplicationProperties</key>
+    <dict>
+        <key>ApplicationPath</key><string>Applications/RightScreen.app</string>
+        <key>CFBundleIdentifier</key><string>$bundle_identifier</string>
+        <key>CFBundleShortVersionString</key><string>$short_version</string>
+        <key>CFBundleVersion</key><string>$build_number</string>
+        <key>SigningIdentity</key><string>$app_identity</string>
+        <key>Team</key><string>$team_identifier</string>
+    </dict>
+    <key>ArchiveVersion</key><integer>2</integer>
+    <key>CreationDate</key><date>$(date -u +%Y-%m-%dT%H:%M:%SZ)</date>
+    <key>Name</key><string>RightScreen</string>
+    <key>SchemeName</key><string>RightScreen</string>
+</dict>
+</plist>
+PLIST
+    cat > "$work_dir/ExportOptions.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key><string>app-store-connect</string>
+    <key>destination</key><string>upload</string>
+    <key>teamID</key><string>$team_identifier</string>
+    <key>signingStyle</key><string>manual</string>
+    <key>signingCertificate</key><string>$app_identity</string>
+    <key>installerSigningCertificate</key><string>$installer_identity</string>
+    <key>provisioningProfiles</key>
+    <dict><key>$bundle_identifier</key><string>$profile_uuid</string></dict>
+    <key>manageAppVersionAndBuildNumber</key><false/>
+</dict>
+</plist>
+PLIST
+    xcodebuild -exportArchive \
+        -archivePath "$archive_path" \
+        -exportPath "$work_dir/export" \
+        -exportOptionsPlist "$work_dir/ExportOptions.plist" \
+        -allowProvisioningUpdates
+    print -- "已上传 $short_version ($build_number)，处理完成后可在 App Store Connect 版本页的「构建版本」中选择。"
 fi

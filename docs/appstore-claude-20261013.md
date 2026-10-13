@@ -27,11 +27,13 @@ Xcode → 设置 → Accounts → 选中 Team → Manage Certificates → `+`：
 Scripts/package-appstore.sh dist/profiles/RightScreen_Mac_App_Store.provisionprofile
 ```
 
-产物：`dist/AppStore/RightScreen.pkg`（universal、沙盒、分发签名）。上传二选一：
+产物：`dist/AppStore/RightScreen.pkg`（universal、沙盒、分发签名）。加 `--upload` 直接上传：
 
-- 用 Transporter App 拖入 pkg；或
-- App Store Connect → 用户和访问 → 集成 → 生成 API 密钥，把 `AuthKey_<KEY_ID>.p8` 放到 `~/.appstoreconnect/private_keys/`，然后：
-  `ASC_KEY_ID=… ASC_ISSUER_ID=… Scripts/package-appstore.sh <profile> --upload`
+```bash
+Scripts/package-appstore.sh dist/profiles/RightScreen_Mac_App_Store.provisionprofile --upload
+```
+
+上传走 `xcodebuild -exportArchive`，使用 Xcode → 设置 → Accounts 中已登录的账号，不需要 API Key 或密码；也可以把 pkg 拖进 Transporter。
 
 每次上传 `CFBundleVersion` 必须更大，脚本默认取 git 提交数；改版本号改 `Info.plist` 的 `CFBundleShortVersionString`。
 
