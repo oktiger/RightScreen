@@ -121,6 +121,10 @@ codesign_arguments=(
     --sign "$signing_identity"
     --identifier "$bundle_identifier"
 )
+if [[ "${RIGHTSCREEN_SANDBOX:-}" == "1" ]]; then
+    # 与 App Store 版相同的沙盒，用于本地验证沙盒下的 AX / 快捷键行为；签名身份不变，辅助功能授权仍有效。
+    codesign_arguments+=(--entitlements "${0:A:h:h}/RightScreen/Resources/RightScreen.entitlements")
+fi
 if [[ -n "$signing_keychain" ]]; then
     # 避免同名身份或其他钥匙串干扰本地签名。
     codesign_arguments+=(--keychain "$signing_keychain")

@@ -80,19 +80,13 @@ let icns = resources.appendingPathComponent("AppIcon.icns")
 try? FileManager.default.removeItem(at: iconset)
 try FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
 
-// iconutil expects these filenames.
-let entries: [(String, Int)] = [
-    ("icon_16x16.png", 16),
-    ("diana.k@example.org", 32),
-    ("icon_32x32.png", 32),
-    ("ivan.p@example.net", 64),
-    ("icon_128x128.png", 128),
-    ("wendy.h@example.net", 256),
-    ("icon_256x256.png", 256),
-    ("wendy.h@example.net", 512),
-    ("icon_512x512.png", 512),
-    ("walt.e@example.net", 1024),
-]
+// iconutil expects icon_<pt>x<pt>.png and icon_<pt>x<pt>@2x.png; App Store requires the 1024px 512@2x slice.
+let entries: [(String, Int)] = [16, 32, 128, 256, 512].flatMap { points in
+    [
+        ("icon_\(points)x\(points).png", points),
+        ("icon_\(points)x\(points)" + "@2x.png", points * 2),
+    ]
+}
 
 for (name, size) in entries {
     let url = iconset.appendingPathComponent(name)

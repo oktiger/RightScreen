@@ -1,0 +1,55 @@
+# RightScreen 上架 Mac App Store 清单
+
+工程侧已就绪：沙盒 entitlements、1024 图标、分类与加密声明、`Scripts/package-appstore.sh`。下面是账号侧步骤与提交材料。
+
+## 1. 沙盒兼容结论（已实测）
+
+- App Sandbox 下 `AXIsProcessTrusted()` 为 true、`CGWindowList` 正常，但对其他 App 的 AX 调用全部返回 `kAXErrorCannotComplete (-25204)`；系统日志为 `deny(1) mach-lookup com.apple.axserver (per-pid)`。
+- 加上临时例外 `com.apple.security.temporary-exception.mach-lookup.local-name = [com.apple.axserver]` 后，全屏、Tab 切换、退出布局都正常。
+- **审核风险**：临时例外需要审核员认可，必须在 App Store Connect →「App 审核信息 / App Sandbox 信息」中写明理由（见第 5 节）。若被拒，备选是 Developer ID 签名 + 公证在官网分发。
+- 本地验证沙盒版：`RIGHTSCREEN_SANDBOX=1 Scripts/run-local.sh`（同一签名身份，辅助功能授权不丢；快捷键设置存在容器里，首次会是默认值）。
+
+## 2. 证书（一次性，Team 9THF4SEGPY）
+
+Xcode → 设置 → Accounts → 选中 Team → Manage Certificates → `+`：
+
+1. **Apple Distribution**
+2. **Mac Installer Distribution**
+
+## 3. 开发者网站（developer.apple.com → Certificates, IDs & Profiles）
+
+1. Identifiers → `+` → App IDs → App → Platform 选 macOS，Bundle ID（Explicit）填 `com.rightscreen.RightScreenApp`，不勾任何 Capability。
+2. Profiles → `+` → Distribution → **Mac App Store Connect** → 选上面的 App ID → 选 Apple Distribution 证书 → 下载 `.provisionprofile`。
+
+## 4. 打包与上传
+
+```bash
+Scripts/package-appstore.sh ~/Downloads/RightScreen_Mac_App_Store.provisionprofile
+```
+
+产物：`dist/AppStore/RightScreen.pkg`（universal、沙盒、分发签名）。上传二选一：
+
+- 用 Transporter App 拖入 pkg；或
+- App Store Connect → 用户和访问 → 集成 → 生成 API 密钥，把 `AuthKey_<KEY_ID>.p8` 放到 `~/.appstoreconnect/private_keys/`，然后：
+  `ASC_KEY_ID=… ASC_ISSUER_ID=… Scripts/package-appstore.sh <profile> --upload`
+
+每次上传 `CFBundleVersion` 必须更大，脚本默认取 git 提交数；改版本号改 `Info.plist` 的 `CFBundleShortVersionString`。
+
+## 5. App Store Connect 材料
+
+- 新建 App：平台 macOS，名称 RightScreen（被占用则改名），主要语言简体中文，Bundle ID 选上面那个，SKU 例：`rightscreen-mac`。
+- 类别：效率（Productivity）。
+- 隐私政策 URL：必填。App 不联网、不收集数据，可放一页简短说明（例如 GitHub Pages）。
+- App 隐私：选「不收集数据」。
+- 截图：至少 1 张，16:10，如 2880×1800 或 1440×900；建议拍二分 + Tab 栏、四等分、网格模式各一张。
+- 出口合规：`ITSAppUsesNonExemptEncryption = NO` 已写入，上传后不再询问。
+
+**审核备注（可直接粘贴）**：
+
+> RightScreen is a window manager. It arranges other apps' windows into panes with a tab bar (Tab Mode) or a BSP tiling grid (Grid Mode). It requires Accessibility permission to read and set other apps' window positions and sizes via the public AXUIElement API; the app shows guidance to System Settings → Privacy & Security → Accessibility on first use.
+>
+> Temporary exception `com.apple.security.temporary-exception.mach-lookup.local-name` = `com.apple.axserver`: without it, the sandbox denies the per-process lookup of `com.apple.axserver`, so every AXUIElement call to another app fails with kAXErrorCannotComplete even after the user grants Accessibility. It is used only for window position/size/raise via the public Accessibility API.
+>
+> How to test: open 2+ windows (e.g. TextEdit), grant Accessibility, then click the menu bar icon → Tab Mode → 左右二分 (Left/Right split). Use 退出当前布局 to restore.
+>
+> The app does not use the network and collects no data.

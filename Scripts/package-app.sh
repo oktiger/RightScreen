@@ -1,8 +1,15 @@
 #!/bin/zsh
 set -euo pipefail
 
+sign_app=1
+if [[ "${1:-}" == "--unsigned" ]]; then
+    # App Store 通道由 package-appstore.sh 用分发证书签名，这里只组装 bundle。
+    sign_app=0
+    shift
+fi
+
 if [[ $# -ne 2 ]]; then
-    print -u2 "用法：$0 <executable-path> <app-path>"
+    print -u2 "用法：$0 [--unsigned] <executable-path> <app-path>"
     exit 2
 fi
 
@@ -57,6 +64,11 @@ bundle_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$co
 if [[ "$bundle_identifier" != "com.rightscreen.RightScreenApp" ]]; then
     print -u2 "打包失败：CFBundleIdentifier 必须为 com.rightscreen.RightScreenApp，实际为：${bundle_identifier:-<空>}"
     exit 1
+fi
+
+if (( ! sign_app )); then
+    print -- "已组装（未签名）：$app_path"
+    exit 0
 fi
 
 # Accessibility 的 TCC 授权绑定 Designated Requirement；禁止直接留下 SwiftPM 的 adhoc 签名。
