@@ -3,3 +3,4 @@
 *.xcuserstate
 .DS_Store
 dist/
+docs/appstore-screenshots/icons/

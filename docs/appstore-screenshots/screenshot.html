@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>RightScreen App Store Screenshot</title>
+<!--
+  App Store 截图源文件。按 1440×900 CSS 像素绘制，render.sh 以 2x 渲染为 2880×1800。
+  Tab 栏、网格分隔条、拖动预览的尺寸与配色取自 RightScreen/Chrome 下的实现常量。
+  ?scene=split | quad | grid | drag
+-->
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1440px; height: 900px; overflow: hidden; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    color: #1d1d1f;
+}
+.canvas {
+    position: relative; width: 1440px; height: 900px;
+    background: radial-gradient(1200px 600px at 20% 0%, #e8f0ff 0%, transparent 60%),
+                radial-gradient(900px 500px at 100% 20%, #f3e9ff 0%, transparent 55%),
+                linear-gradient(180deg, #f7f8fb 0%, #eceff5 100%);
+}
+.caption { position: absolute; left: 0; right: 0; top: 30px; text-align: center; }
+.caption h1 { font-size: 44px; font-weight: 700; letter-spacing: 0.5px; }
+.caption p { margin-top: 8px; font-size: 20px; color: #5b5b63; }
+.screen {
+    position: absolute; left: 160px; top: 138px; width: 1120px; height: 700px;
+    border-radius: 16px; overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.18), 0 30px 60px rgba(30,40,80,.28), 0 8px 18px rgba(30,40,80,.16);
+}
+.desk {
+    position: absolute; left: 0; top: 0; width: 1440px; height: 900px;
+    transform: scale(0.777778); transform-origin: 0 0; overflow: hidden;
+    background: radial-gradient(900px 700px at 15% 85%, #ff8a5c 0%, transparent 60%),
+                radial-gradient(900px 700px at 85% 15%, #5b7cff 0%, transparent 60%),
+                linear-gradient(135deg, #6a4bd8 0%, #c04fa6 50%, #ff9f5a 100%);
+}
+
+/* 菜单栏 */
+.menubar {
+    position: absolute; left: 0; top: 0; width: 1440px; height: 24px;
+    background: rgba(255,255,255,.55); backdrop-filter: blur(20px);
+    display: flex; align-items: center; padding: 0 12px; font-size: 13px; gap: 18px; z-index: 50;
+}
+.menubar b { font-weight: 700; }
+.menubar .right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+.status-rs { display: flex; align-items: center; justify-content: center; width: 30px; height: 20px; border-radius: 5px; }
+.status-rs.active { background: rgba(0,0,0,.14); }
+
+/* 窗口 */
+.win {
+    position: absolute; border-radius: 12px; overflow: hidden; background: #fff;
+    box-shadow: 0 0 0 0.5px rgba(0,0,0,.28), 0 10px 30px rgba(0,0,0,.28);
+    display: flex; flex-direction: column;
+}
+.lights { display: flex; gap: 8px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+.lights i:nth-child(1) { background: #ff5f57; }
+.lights i:nth-child(2) { background: #febc2e; }
+.lights i:nth-child(3) { background: #28c840; }
+
+/* Tab 条：PaneTabBarPanel — 高 32，内边距 6/4，Tab 高 24，最宽 154，间距 4，圆角 8 */
+.strip { position: absolute; height: 32px; padding: 4px 6px; display: flex; gap: 4px; z-index: 20; }
+.tab {
+    height: 24px; border-radius: 8px; display: flex; align-items: center; flex: none;
+    background: rgba(58,58,64,.82); backdrop-filter: blur(16px);
+    box-shadow: 0 1px 3px rgba(0,0,0,.25);
+    color: rgba(255,255,255,.94); font-size: 11px; font-weight: 500;
+}
+.tab.sel { background: rgba(255,255,255,.97); color: rgba(0,0,0,.92); }
+.tab img { width: 13px; height: 13px; margin-left: 9px; margin-right: 5px; flex: none; }
+.tab .t { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tab .mv, .tab .x {
+    flex: none; height: 24px; display: flex; align-items: center; justify-content: center;
+    color: rgba(255,255,255,.78); font-size: 11px;
+}
+.tab.sel .mv, .tab.sel .x { color: rgba(0,0,0,.48); }
+.tab .mv { width: 20px; }
+.tab .x { width: 23px; font-size: 12px; }
+
+/* 网格模式 */
+.handle { position: absolute; border-radius: 2px; background: rgba(209,209,209,.92); z-index: 30; box-shadow: 0 0 0 0.5px rgba(0,0,0,.2); }
+.preview {
+    position: absolute; z-index: 25; border-radius: 10px;
+    background: rgb(46,46,46); border: 1px solid rgba(115,115,115,.55);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff;
+}
+.preview img { width: 64px; height: 64px; }
+.preview .n { margin-top: 12px; font-size: 13px; font-weight: 600; }
+.preview .d { margin-top: 4px; font-size: 11px; color: #bfbfbf; font-variant-numeric: tabular-nums; }
+.cursor { position: absolute; z-index: 40; }
+
+/* 菜单 */
+.menu {
+    position: absolute; z-index: 60; width: 236px; padding: 5px;
+    background: rgba(242,242,244,.86); backdrop-filter: blur(30px);
+    border-radius: 10px; box-shadow: 0 0 0 0.5px rgba(0,0,0,.22), 0 14px 40px rgba(0,0,0,.3);
+    font-size: 13px;
+}
+.menu .h { padding: 4px 10px 2px; font-size: 11px; font-weight: 600; color: rgba(0,0,0,.45); }
+.menu .i { height: 24px; padding: 0 10px 0 24px; display: flex; align-items: center; gap: 8px; border-radius: 5px; position: relative; }
+.menu .i.on::before { content: "✓"; position: absolute; left: 8px; font-size: 12px; }
+.menu .i.hl { background: #0a6cff; color: #fff; }
+.menu .i.hl rect { fill: #fff; }
+.menu .i .k { margin-left: auto; color: rgba(0,0,0,.4); }
+.menu .sep { height: 1px; margin: 5px 10px; background: rgba(0,0,0,.1); }
+
+/* 应用内容 */
+.toolbar { height: 52px; flex: none; display: flex; align-items: center; padding: 0 16px; gap: 14px; }
+.mono { font-family: "SF Mono", Menlo, monospace; }
+</style>
+</head>
+<body>
+<div class="canvas">
+    <div class="caption"><h1 id="h"></h1><p id="p"></p></div>
+    <div class="screen"><div class="desk" id="desk"></div></div>
+</div>
+<script>
+const W = 1440, H = 900, MENU = 24;
+const ICON = name => `icons/${name}.png`;
+const APP = {
+    safari: "Safari", xcode: "Xcode", terminal: "终端", notes: "备忘录",
+    textedit: "文本编辑", preview: "预览", finder: "访达", calendar: "日历"
+};
+const desk = document.getElementById("desk");
+const add = html => desk.insertAdjacentHTML("beforeend", html);
+const rsGlyph = color => `<svg width="18" height="13" viewBox="0 0 18 13"><rect x="1" y="1" width="16" height="11" rx="2.5" fill="none" stroke="${color}" stroke-width="1.6"/><rect x="8.2" y="1" width="1.6" height="11" fill="${color}"/></svg>`;
+
+function menubar(appName, rsActive) {
+    add(`<div class="menubar">
+        <b>${appName}</b>
+        <span>文件</span><span>编辑</span><span>显示</span><span>窗口</span><span>帮助</span>
+        <div class="right">
+            <span class="status-rs ${rsActive ? "active" : ""}">${rsGlyph("#1d1d1f")}</span>
+            <svg width="17" height="12" viewBox="0 0 17 12"><path d="M8.5 11.5 L1 4 A10.6 10.6 0 0 1 16 4 Z" fill="#1d1d1f"/></svg>
+            <svg width="26" height="12" viewBox="0 0 26 12"><rect x=".5" y=".5" width="22" height="11" rx="3" fill="none" stroke="#1d1d1f" opacity=".5"/><rect x="2" y="2" width="16" height="8" rx="1.5" fill="#1d1d1f"/><rect x="23.5" y="4" width="1.5" height="4" rx=".7" fill="#1d1d1f" opacity=".5"/></svg>
+            <span>10月13日 周二 15:52</span>
+        </div>
+    </div>`);
+}
+
+/* ---------- 应用窗口内容 ---------- */
+function safari() {
+    return `<div class="toolbar" style="background:#f6f6f6;border-bottom:1px solid #e3e3e3">
+            <div class="lights"><i></i><i></i><i></i></div>
+            <span style="color:#8a8a8e;font-size:15px;margin-left:8px">‹ ›</span>
+            <div style="flex:1;display:flex;justify-content:center"><div style="width:62%;max-width:420px;height:30px;border-radius:9px;background:#e9e9eb;display:flex;align-items:center;justify-content:center;font-size:13px;color:#3a3a3c">🔒 oktiger.github.io</div></div>
+            <span style="color:#8a8a8e;font-size:17px">＋</span>
+        </div>
+        <div style="flex:1;background:#fff;padding:48px 0 0;overflow:hidden">
+            <div style="max-width:520px;margin:0 auto;padding:0 32px">
+                <div style="display:flex;align-items:center;gap:14px"><img src="${ICON("rightscreen")}" style="width:58px;height:58px"><div><div style="font-size:28px;font-weight:700">RightScreen</div><div style="color:#6e6e73;font-size:14px;margin-top:2px">macOS 菜单栏窗口管理工具</div></div></div>
+                <p style="margin-top:26px;font-size:15px;line-height:1.7">把桌面上的窗口一键排进窗格，每格顶部有 Tab 栏切换同格窗口；也可以切到网格模式，让所有窗口平铺同时可见。</p>
+                <ul style="margin-top:16px;padding-left:20px;font-size:15px;line-height:1.9">
+                    <li><b>Tab Mode</b>：全屏、二分、三等分、1+2、四等分</li>
+                    <li><b>Grid Mode</b>：自动平铺，拖动分隔条调整大小</li>
+                    <li>「退出布局」把窗口还原到原来的位置</li>
+                </ul>
+                <div style="margin-top:28px;height:150px;border-radius:14px;background:linear-gradient(135deg,#dbe7ff,#f1e6ff)"></div>
+            </div>
+        </div>`;
+}
+
+const swiftCode = [
+    ["c", "/// 连续均分，余数依次补给前面的窗格。"],
+    ["", "<k>static func</k> <f>assign</f>&lt;T&gt;(_ items: [T], paneCount: <t>Int</t>) -&gt; [[T]] {"],
+    ["", "    <k>guard</k> paneCount &gt; <n>0</n> <k>else</k> { <k>return</k> [] }"],
+    ["", ""],
+    ["", "    <k>let</k> baseCount = items.count / paneCount"],
+    ["", "    <k>let</k> remainder = items.count % paneCount"],
+    ["", "    <k>var</k> cursor = <n>0</n>"],
+    ["", ""],
+    ["", "    <k>return</k> (<n>0</n>..&lt;paneCount).<f>map</f> { paneIndex <k>in</k>"],
+    ["", "        <k>let</k> count = baseCount + (paneIndex &lt; remainder ? <n>1</n> : <n>0</n>)"],
+    ["", "        <k>let</k> end = cursor + count"],
+    ["", "        <k>defer</k> { cursor = end }"],
+    ["", "        <k>return</k> <t>Array</t>(items[cursor..&lt;end])"],
+    ["", "    }"],
+    ["", "}"],
+    ["", ""],
+    ["", "<k>static func</k> <f>geometries</f>("],
+    ["", "    <k>for</k> kind: <t>LayoutKind</t>,"],
+    ["", "    <k>in</k> visibleFrame: <t>CGRect</t>,"],
+    ["", "    tabBarHeight: <t>CGFloat</t> = tabBarHeight"],
+    ["", ") -&gt; [<t>PaneGeometry</t>] {"],
+    ["", "    <f>paneFrames</f>(for: kind, in: visibleFrame).<f>map</f> { paneFrame <k>in</k>"],
+    ["", "        <k>let</k> tabHeight = <f>min</f>(<f>max</f>(<n>0</n>, tabBarHeight), paneFrame.height)"],
+    ["", "        <k>let</k> windowFrame = <t>CGRect</t>("],
+    ["", "            x: paneFrame.minX,"],
+    ["", "            y: paneFrame.minY,"],
+    ["", "            width: paneFrame.width,"],
+    ["", "            height: paneFrame.height - tabHeight"],
+    ["", "        )"],
+];
+function xcode() {
+    const files = ["App", "  AppDelegate", "  LayoutCoordinator", "Chrome", "  PaneTabBarPanel", "  BentoDividerPanel", "Layout", "  BentoEngine", "  LayoutEngine", "  LayoutKind", "Windowing", "  WindowController", "  WindowIndexer"];
+    const lines = swiftCode.map(([cls, src], i) => `<div style="display:flex;height:20px;overflow:hidden"><span style="flex:none;width:38px;text-align:right;color:#5d6068;padding-right:14px">${i + 1}</span><span style="white-space:pre;${cls ? "color:#6c7986" : ""}">${src}</span></div>`).join("");
+    return `<style>k{color:#fc5fa3;font-weight:600}f{color:#67b7a4}t{color:#d0a8ff}n{color:#d9c97c}</style>
+        <div class="toolbar" style="background:#2a2a2e;color:#d0d0d5;font-size:13px;border-bottom:1px solid #111">
+            <div class="lights"><i></i><i></i><i></i></div>
+            <span style="margin-left:14px;font-size:14px">▶</span>
+            <span style="font-weight:600">RightScreen</span><span style="color:#8d8d93">›  My Mac</span>
+            <div style="flex:1;display:flex;justify-content:center"><div style="padding:5px 14px;border-radius:7px;background:#3a3a3f;font-size:12px;color:#c9c9ce">Build Succeeded | Today at 15:51</div></div>
+        </div>
+        <div style="flex:1;display:flex;min-height:0">
+            <div style="width:190px;background:#232326;color:#c9c9ce;font-size:12px;padding:12px 10px;line-height:22px;border-right:1px solid #111">
+                <div style="font-weight:600">▾ RightScreen</div>
+                ${files.map(f => f.startsWith("  ") ? `<div style="padding-left:28px;${f.trim() === "LayoutEngine" ? "background:#0a5fd8;border-radius:5px;color:#fff" : ""}">${f.trim()}.swift</div>` : `<div style="padding-left:12px">▾ ${f}</div>`).join("")}
+            </div>
+            <div class="mono" style="flex:1;background:#1f1f24;color:#e4e4e8;font-size:12.5px;padding:12px 0;overflow:hidden">
+                <div style="color:#8d8d93;font-size:12px;padding:0 0 10px 16px;font-family:-apple-system">LayoutEngine.swift</div>${lines}
+            </div>
+        </div>`;
+}
+
+function terminal() {
+    const out = [
+        ["#9ad", "~/RightScreen % swift test"],
+        ["", "Building for debugging..."],
+        ["", "Build complete! (4.12s)"],
+        ["#8c8", "✔ Suite LayoutEngineTests passed"],
+        ["#8c8", "✔ Suite BentoEngineTests passed"],
+        ["#8c8", "✔ Suite PaneTabStripLayoutTests passed"],
+        ["#8c8", "✔ Suite PaneReconciliationTests passed"],
+        ["#8c8", "✔ Suite WindowStackingTests passed"],
+        ["#8c8", "✔ Test run with 110 tests in 19 suites passed"],
+        ["#9ad", "~/RightScreen % ▌"],
+    ];
+    return `<div style="height:30px;flex:none;background:#2b2b2b;display:flex;align-items:center;padding:0 12px;color:#bbb;font-size:12px;border-bottom:1px solid #111">
+            <div class="lights"><i></i><i></i><i></i></div><div style="flex:1;text-align:center;margin-right:52px">RightScreen — zsh</div></div>
+        <div class="mono" style="flex:1;background:#1c1c1c;color:#e6e6e6;font-size:12.5px;line-height:20px;padding:10px 14px;overflow:hidden">
+            ${out.map(([c, s]) => `<div style="${c ? `color:${c}` : ""}">${s}</div>`).join("")}
+        </div>`;
+}
+
+function notes() {
+    const items = [["本周计划", "10:24"], ["产品发布清单", "昨天"], ["读书笔记", "星期六"], ["旅行准备", "星期四"]];
+    const todo = [[true, "整理 App Store 截图"], [true, "写隐私政策页面"], [false, "准备审核说明"], [false, "提交 1.0 版本"]];
+    return `<div style="flex:1;display:flex;min-height:0">
+        <div style="width:210px;background:#f3f2ef;border-right:1px solid #e2e0da;padding:14px 10px">
+            <div class="lights" style="margin:2px 6px 18px"><i></i><i></i><i></i></div>
+            ${items.map(([t, d], i) => `<div style="padding:8px 10px;border-radius:7px;margin-bottom:2px;${i === 0 ? "background:#f6d34a" : ""}"><div style="font-size:13px;font-weight:600">${t}</div><div style="font-size:11px;color:${i === 0 ? "#5b4a00" : "#8a8a8e"};margin-top:2px">${d}</div></div>`).join("")}
+        </div>
+        <div style="flex:1;background:#fff;padding:52px 34px 0">
+            <div style="font-size:24px;font-weight:700">本周计划</div>
+            <div style="margin-top:16px;font-size:14px;line-height:2.1">
+                ${todo.map(([done, t]) => `<div style="display:flex;align-items:center;gap:10px"><span style="width:16px;height:16px;border-radius:50%;flex:none;${done ? "background:#f2b80a" : "border:1.5px solid #c4c4c8"}"></span><span style="${done ? "color:#8a8a8e;text-decoration:line-through" : ""}">${t}</span></div>`).join("")}
+            </div>
+        </div>
+    </div>`;
+}
+
+function win(x, y, w, h, kind) {
+    const body = { safari, xcode, terminal, notes }[kind]();
+    add(`<div class="win" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px">${body}</div>`);
+}
+
+/* ---------- Tab 条 ---------- */
+const ARROW = { left: "←", right: "→", up: "↑", down: "↓" };
+function strip(x, y, w, tabs, moves) {
+    const avail = w - 12;
+    const tabW = Math.min(154, (avail - 4 * (tabs.length - 1)) / tabs.length);
+    const html = tabs.map((name, i) => {
+        const sel = i === 0;
+        const mv = sel ? moves.map(m => `<span class="mv">${ARROW[m]}</span>`).join("") : "";
+        return `<div class="tab ${sel ? "sel" : ""}" style="width:${tabW}px"><img src="${ICON(name)}"><span class="t">${APP[name]}</span>${mv}<span class="x">✕</span></div>`;
+    }).join("");
+    add(`<div class="strip" style="left:${x}px;top:${y}px;width:${w}px">${html}</div>`);
+}
+
+function tabPane(x, y, w, h, tabs, moves) {
+    strip(x, y, w, tabs, moves);
+    win(x, y + 32, w, h - 32, tabs[0]);
+}
+
+/* ---------- 菜单 ---------- */
+function layoutGlyph(rects) {
+    return `<svg width="22" height="16" viewBox="0 0 22 16">${rects.map(([x, y, w, h]) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1.6" fill="#0a7aff"/>`).join("")}</svg>`;
+}
+function menu(x, y, activeTitle) {
+    const g = 1.5, L = 0, T = 0, Wd = 22, Hd = 16, hw = (Wd - g) / 2, hh = (Hd - g) / 2, tw = (Wd - 2 * g) / 3;
+    const items = [
+        ["全屏（1 格）", [[0, 0, 22, 16]]],
+        ["左右二分（2 格）", [[0, 0, hw, 16], [hw + g, 0, hw, 16]]],
+        ["左右三等分（3 格）", [[0, 0, tw, 16], [tw + g, 0, tw, 16], [2 * (tw + g), 0, tw, 16]]],
+        ["上下二分（2 格）", [[0, 0, 22, hh], [0, hh + g, 22, hh]]],
+        ["1+2（3 格）", [[0, 0, hw, 16], [hw + g, 0, hw, hh], [hw + g, hh + g, hw, hh]]],
+        ["2+1（3 格）", [[0, 0, hw, hh], [0, hh + g, hw, hh], [hw + g, 0, hw, 16]]],
+        ["四等分（4 格）", [[0, 0, hw, hh], [hw + g, 0, hw, hh], [0, hh + g, hw, hh], [hw + g, hh + g, hw, hh]]],
+    ];
+    const row = (t, glyph, cls = "") => `<div class="i ${cls}">${glyph}<span>${t}</span></div>`;
+    add(`<div class="menu" style="left:${x}px;top:${y}px">
+        <div class="h">Tab Mode</div>
+        ${items.map(([t, r]) => row(t, layoutGlyph(r), t === activeTitle ? "on" : "")).join("")}
+        <div class="sep"></div>
+        <div class="h">Grid Mode</div>
+        ${row("网格", layoutGlyph([[0, 0, hw, 16], [hw + g, 0, hw, hh], [hw + g, hh + g, hw, hh]]), "hl")}
+        <div class="sep"></div>
+        ${row("退出当前布局", "")}
+        ${row("快捷键设置…", "")}
+        <div class="sep"></div>
+        ${row("打开辅助功能权限设置…", "", "on")}
+        <div class="sep"></div>
+        <div class="i"><span>退出 RightScreen</span><span class="k">⌘Q</span></div>
+    </div>`);
+}
+
+/* ---------- 场景 ---------- */
+const VH = H - MENU;
+const scenes = {
+    split: {
+        h: "一键分屏，每格自带 Tab 栏",
+        p: "同格窗口叠成 Tab，点一下切换，箭头把窗口换到另一侧",
+        app: "Safari",
+        draw() {
+            tabPane(0, MENU, W / 2, VH, ["safari", "notes", "preview"], ["right"]);
+            tabPane(W / 2, MENU, W / 2, VH, ["xcode", "terminal", "textedit"], ["left"]);
+        }
+    },
+    quad: {
+        h: "七种窗格预设，菜单栏一点即用",
+        p: "全屏、二分、三等分、1+2、2+1、四等分，随时退出还原",
+        app: "Xcode",
+        rs: true,
+        draw() {
+            const hw = W / 2, hh = VH / 2;
+            tabPane(0, MENU, hw, hh, ["safari", "preview"], ["right", "down"]);
+            tabPane(hw, MENU, hw, hh, ["xcode"], ["left", "down"]);
+            tabPane(0, MENU + hh, hw, hh, ["notes", "textedit", "calendar"], ["up", "right"]);
+            tabPane(hw, MENU + hh, hw, hh, ["terminal", "finder"], ["up", "left"]);
+            menu(1076, MENU + 2, "四等分（4 格）");
+        }
+    },
+    grid: {
+        h: "网格模式：所有窗口同时可见",
+        p: "自动平铺，一窗一格，格间留出 8pt 间距",
+        app: "终端",
+        draw() {
+            const gap = 8, top = MENU + gap, fullH = VH - 2 * gap;
+            const lw = (W - 3 * gap) / 2, rx = gap * 2 + lw, rh = (fullH - gap) / 2;
+            win(gap, top, lw, fullH, "safari");
+            win(rx, top, lw, rh, "xcode");
+            win(rx, top + rh + gap, lw, rh, "terminal");
+            add(`<div class="handle" style="left:${gap + lw + gap / 2 - 2}px;top:${top + fullH / 2 - 14}px;width:4px;height:28px"></div>`);
+            add(`<div class="handle" style="left:${rx + lw / 2 - 14}px;top:${top + rh + gap / 2 - 2}px;width:28px;height:4px"></div>`);
+        }
+    },
+    drag: {
+        h: "拖动分隔条，尺寸实时预览",
+        p: "显示应用图标与宽 × 高，松手后窗口一次到位",
+        app: "Safari",
+        draw() {
+            const gap = 8, top = MENU + gap, fullH = VH - 2 * gap;
+            // 预览几乎不透明，原窗口只会从格缝里露出边角，宣传图中省略。
+            const rh = (fullH - gap) / 2;
+            const lw = 820, rx = gap * 2 + lw, rw = W - rx - gap;
+            const tile = (x, y, w, h, icon, name) => add(`<div class="preview" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px"><img src="${ICON(icon)}"><div class="n">${name}</div><div class="d">${Math.round(w)} × ${Math.round(h)}</div></div>`);
+            tile(gap, top, lw, fullH, "safari", "Safari");
+            tile(rx, top, rw, rh, "xcode", "Xcode");
+            tile(rx, top + rh + gap, rw, rh, "terminal", "终端");
+            const hx = gap + lw + gap / 2, hy = top + fullH / 2;
+            add(`<div class="handle" style="left:${hx - 2}px;top:${hy - 14}px;width:4px;height:28px"></div>`);
+            add(`<svg class="cursor" style="left:${hx - 16}px;top:${hy + 18}px" width="32" height="20" viewBox="0 0 32 20"><path d="M2 10 L9 3 V7.5 H23 V3 L30 10 L23 17 V12.5 H9 V17 Z" fill="#000" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>`);
+        }
+    }
+};
+
+const scene = scenes[new URLSearchParams(location.search).get("scene") || "split"];
+document.getElementById("h").textContent = scene.h;
+document.getElementById("p").textContent = scene.p;
+menubar(scene.app, scene.rs);
+scene.draw();
+</script>
+</body>
+</html>

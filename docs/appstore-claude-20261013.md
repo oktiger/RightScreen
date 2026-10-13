@@ -44,7 +44,7 @@ Scripts/package-appstore.sh ~/Downloads/RightScreen_Mac_App_Store.provisionprofi
 - 技术支持 URL：`https://oktiger.github.io/RightScreen/`（营销 URL 可留空）
 - 站点源文件在 `site/`，推送到 master 后由 `.github/workflows/pages.yml` 自动部署。
 - App 隐私：选「不收集数据」。
-- 截图：至少 1 张，16:10，如 2880×1800 或 1440×900；建议拍二分 + Tab 栏、四等分、网格模式各一张。
+- 截图：`docs/appstore-screenshots/render.sh` 生成 4 张 2880×1800 到 `dist/AppStore/screenshots/`（二分 + Tab、四等分 + 菜单、网格、拖动预览）；改文案或场景编辑同目录的 `screenshot.html`。
 - 出口合规：`ITSAppUsesNonExemptEncryption = NO` 已写入，上传后不再询问。
 
 **审核备注（可直接粘贴）**：
