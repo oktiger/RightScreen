@@ -39,7 +39,10 @@ Scripts/package-appstore.sh ~/Downloads/RightScreen_Mac_App_Store.provisionprofi
 
 - 新建 App：平台 macOS，名称 RightScreen（被占用则改名），主要语言简体中文，Bundle ID 选上面那个，SKU 例：`rightscreen-mac`。
 - 类别：效率（Productivity）。
-- 隐私政策 URL：必填。App 不联网、不收集数据，可放一页简短说明（例如 GitHub Pages）。
+- 价格：免费。
+- 隐私政策 URL：`https://oktiger.github.io/RightScreen/privacy.html`
+- 技术支持 URL：`https://oktiger.github.io/RightScreen/`（营销 URL 可留空）
+- 站点源文件在 `site/`，推送到 master 后由 `.github/workflows/pages.yml` 自动部署。
 - App 隐私：选「不收集数据」。
 - 截图：至少 1 张，16:10，如 2880×1800 或 1440×900；建议拍二分 + Tab 栏、四等分、网格模式各一张。
 - 出口合规：`ITSAppUsesNonExemptEncryption = NO` 已写入，上传后不再询问。
