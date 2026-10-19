@@ -4,6 +4,7 @@ import AppKit
 final class StatusItemController: NSObject, NSMenuDelegate {
     private let coordinator: LayoutCoordinator
     private let onOpenHotKeySettings: () -> Void
+    private let onOpenPermissionGuide: () -> Void
     private var statusItem: NSStatusItem
     private var presenceWatchTask: Task<Void, Never>?
     private var didOfferMenuBarSettings = false
@@ -45,9 +46,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         keyEquivalent: ""
     )
 
-    init(coordinator: LayoutCoordinator, onOpenHotKeySettings: @escaping () -> Void) {
+    init(
+        coordinator: LayoutCoordinator,
+        onOpenHotKeySettings: @escaping () -> Void,
+        onOpenPermissionGuide: @escaping () -> Void
+    ) {
         self.coordinator = coordinator
         self.onOpenHotKeySettings = onOpenHotKeySettings
+        self.onOpenPermissionGuide = onOpenPermissionGuide
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
         configureStatusItem()
@@ -194,27 +200,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     @objc private func openAccessibilitySettings() {
-        if let issue = Permissions.signingIssue {
-            showSigningIssue(issue)
-            return
-        }
-
-        if Permissions.isAccessibilityGranted {
+        if Permissions.signingIssue == nil, Permissions.isAccessibilityGranted {
             Permissions.openAccessibilitySettings(promptIfNeeded: false)
             return
         }
-
-        Permissions.openAccessibilitySettings(promptIfNeeded: true)
-    }
-
-    private func showSigningIssue(_ issue: String) {
-        let help = Permissions.accessibilityHelpMessage(signingIssue: issue)
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = help.title
-        alert.informativeText = help.message
-        alert.addButton(withTitle: localized("好"))
-        alert.runModal()
+        onOpenPermissionGuide()
     }
 
     @objc private func quit() {

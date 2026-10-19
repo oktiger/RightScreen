@@ -34,6 +34,9 @@ final class LayoutCoordinator {
         .milliseconds(700)
     ]
 
+    /// 未授权辅助功能时调用，由 AppDelegate 弹出权限引导窗口。
+    var onAccessibilityMissing: (() -> Void)?
+
     private let windowIndexer = WindowIndexer()
     private let windowController = WindowController()
     private var reconciliationTimer: Timer?
@@ -973,10 +976,7 @@ final class LayoutCoordinator {
                 message: localized("macOS 辅助功能服务暂时没有响应。RightScreen 已自动重试，请稍后再试。")
             )
         case .accessibilityPermissionRequired:
-            showMessage(
-                title: localized("需要辅助功能权限"),
-                message: localized("请在“系统设置 → 隐私与安全性 → 辅助功能”中允许 RightScreen，然后重试。")
-            )
+            onAccessibilityMissing?()
         case .unsupported:
             showMessage(
                 title: localized("这个窗口不提供关闭控制"),
@@ -1368,21 +1368,10 @@ final class LayoutCoordinator {
     }
 
     private func ensureAccessibility() -> Bool {
-        if let issue = Permissions.signingIssue {
-            let help = Permissions.accessibilityHelpMessage(signingIssue: issue)
-            showMessage(title: help.title, message: help.message)
-            return false
-        }
-
-        if Permissions.isAccessibilityGranted {
+        if Permissions.signingIssue == nil, Permissions.isAccessibilityGranted {
             return true
         }
-
-        // 系统提示本身已包含“打开系统设置”，这里不再叠加自定义 Alert。
-        let granted = Permissions.requestAccessibility()
-        if granted || Permissions.isAccessibilityGranted {
-            return true
-        }
+        onAccessibilityMissing?()
         return false
     }
 

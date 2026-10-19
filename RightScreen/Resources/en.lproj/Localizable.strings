@@ -12,7 +12,6 @@
 "暂时无法关闭窗口" = "Can’t Close the Window Right Now";
 "macOS 辅助功能服务暂时没有响应。RightScreen 已自动重试，请稍后再试。" = "The macOS Accessibility service isn’t responding. RightScreen already retried automatically. Please try again later.";
 "需要辅助功能权限" = "Accessibility Permission Required";
-"请在“系统设置 → 隐私与安全性 → 辅助功能”中允许 RightScreen，然后重试。" = "Allow RightScreen in System Settings → Privacy & Security → Accessibility, then try again.";
 "请在“系统设置 → 隐私与安全性 → 辅助功能”中允许 RightScreen，然后再次选择布局。" = "Allow RightScreen in System Settings → Privacy & Security → Accessibility, then choose a layout again.";
 "这个窗口不提供关闭控制" = "This Window Has No Close Control";
 "RightScreen 仍可管理它的位置和大小，但该窗口没有提供系统关闭按钮。为避免误关窗口或退出整个 App，请使用该 App 自己的关闭按钮。" = "RightScreen can still manage its position and size, but the window doesn’t provide a standard close button. To avoid closing the wrong window or quitting the whole app, use the app’s own close button.";
@@ -62,3 +61,15 @@
 "应用" = "App";
 "1 格" = "1 pane";
 "还有 1 个窗口" = "1 more window";
+"RightScreen 已获得辅助功能权限，可以从菜单栏图标选择布局开始使用。" = "RightScreen has Accessibility permission. Choose a layout from the menu bar icon to get started.";
+"权限已就绪" = "Permission Granted";
+"辅助功能：已授权" = "Accessibility: Allowed";
+"辅助功能：未授权" = "Accessibility: Not Allowed";
+"RightScreen 需要“辅助功能”权限才能移动和调整其他 App 的窗口。" = "RightScreen needs Accessibility permission to move and resize other apps’ windows.";
+"1. 点击下方“打开系统设置”；\n2. 在“隐私与安全性 → 辅助功能”列表中打开 RightScreen 的开关；\n3. 回到这里，状态会自动变为“已授权”。" = "1. Click “Open System Settings” below.\n2. In Privacy & Security → Accessibility, turn on RightScreen.\n3. Come back here — the status will switch to “Allowed” automatically.";
+"正在等待授权…" = "Waiting for permission…";
+"开关已经打开，却仍显示未授权？" = "Switch is on but still not allowed?";
+"这通常是系统中残留了旧版本 RightScreen（之前安装过的测试版或其他渠道的版本）的授权记录，新版本无法沿用。请：\n1. 在“辅助功能”列表中选中 RightScreen，点击下方的“−”将其删除；\n2. 回到这里点击“打开系统设置”，重新打开 RightScreen 的开关；\n3. 若仍未生效，点击“重新启动 RightScreen”。" = "This usually means macOS kept a permission record from an older RightScreen build (a previous beta or a copy from another source), which the new build can’t reuse. To fix it:\n1. In the Accessibility list, select RightScreen and click “−” to remove it.\n2. Come back and click “Open System Settings”, then turn RightScreen on again.\n3. If it still doesn’t take effect, click “Relaunch RightScreen”.";
+"开始使用" = "Get Started";
+"重新启动 RightScreen" = "Relaunch RightScreen";
+"打开系统设置" = "Open System Settings";

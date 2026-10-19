@@ -7,10 +7,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKeyCenter: HotKeyCenter?
     private var hotKeySettingsStore: HotKeySettingsStore?
     private var hotKeySettingsWindowController: HotKeySettingsWindowController?
+    private var permissionGuideWindowController: PermissionGuideWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let permissionGuide = PermissionGuideWindowController()
+        permissionGuideWindowController = permissionGuide
+
         let coordinator = LayoutCoordinator()
         layoutCoordinator = coordinator
+        coordinator.onAccessibilityMissing = { [weak permissionGuide] in
+            permissionGuide?.show()
+        }
 
         let store = HotKeySettingsStore()
         hotKeySettingsStore = store
@@ -37,8 +44,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             coordinator: coordinator,
             onOpenHotKeySettings: { [weak settings] in
                 settings?.show()
+            },
+            onOpenPermissionGuide: { [weak permissionGuide] in
+                permissionGuide?.show()
             }
         )
+
+        // 每次启动都检查：未授权（或安装包身份不对）时主动弹出引导窗口。
+        permissionGuide.showIfNeeded()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
