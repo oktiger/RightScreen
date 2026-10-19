@@ -50,3 +50,14 @@ struct PermissionHelperPlacementTests {
         #expect(visible.contains(frame))
     }
 }
+
+struct PermissionHelperHintTests {
+    @Test func startsWithTurnOnHint() {
+        #expect(PermissionHelperHint.resolve(secondsSinceStart: 0) == .turnOnOrDrag)
+        #expect(PermissionHelperHint.resolve(secondsSinceStart: PermissionHelperHint.staleThreshold - 0.1) == .turnOnOrDrag)
+    }
+
+    @Test func switchesToStaleEntryHintWhenStillNotGranted() {
+        #expect(PermissionHelperHint.resolve(secondsSinceStart: PermissionHelperHint.staleThreshold) == .removeStaleEntry)
+    }
+}

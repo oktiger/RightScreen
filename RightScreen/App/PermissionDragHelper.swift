@@ -2,6 +2,7 @@ import AppKit
 
 /// 授权时贴在「系统设置」权限列表正下方的一行提示条。
 /// 整条可拖动：列表里没有 RightScreen 时，把它拖进上方列表即可添加。
+/// 迟迟未生效时文案换成「删除旧条目后重新授权」，见 `PermissionHelperHint`。
 /// 只在系统设置位于前台时显示，并跟随其窗口移动。
 @MainActor
 final class PermissionDragHelper {
@@ -9,8 +10,9 @@ final class PermissionDragHelper {
     private static let pillHeight: CGFloat = 36
 
     private let panel: NSPanel
-    private let pill = HelperPillView(text: localized("在上方列表打开 RightScreen，或把图标拖进去"))
+    private let pill = HelperPillView(text: PermissionHelperHint.turnOnOrDrag.text)
     private var followTimer: Timer?
+    private var startedAt = Date()
 
     init() {
         panel = NSPanel(
@@ -34,6 +36,7 @@ final class PermissionDragHelper {
         // 先让系统把 RightScreen 登记进列表，用户打开开关即可；拖动只是登记失败时的后备。
         Permissions.registerInSettingsList(permission)
         Permissions.openSettings(for: permission)
+        startedAt = Date()
         followTimer?.invalidate()
         let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -64,6 +67,7 @@ final class PermissionDragHelper {
         let screen = NSScreen.screens.first { $0.frame.contains(CGPoint(x: settingsFrame.midX, y: settingsFrame.midY)) }
             ?? NSScreen.main
         guard let visibleFrame = screen?.visibleFrame else { return }
+        pill.text = PermissionHelperHint.resolve(secondsSinceStart: Date().timeIntervalSince(startedAt)).text
         let frame = PermissionHelperPlacement.frame(
             panelSize: CGSize(width: pill.fittingSize.width, height: Self.pillHeight),
             settingsFrame: settingsFrame,
@@ -110,6 +114,16 @@ final class PermissionDragHelper {
 /// 一行胶囊提示：App 图标 + 文案。整条都是拖动源，拖出的是 App 自身的文件 URL。
 private final class HelperPillView: NSVisualEffectView, NSDraggingSource {
     private let iconView = NSImageView(image: NSApp.applicationIconImage)
+    private let label = NSTextField(labelWithString: "")
+
+    var text: String {
+        get { label.stringValue }
+        set {
+            guard newValue != label.stringValue else { return }
+            label.stringValue = newValue
+            toolTip = newValue
+        }
+    }
 
     init(text: String) {
         super.init(frame: .zero)
@@ -120,7 +134,7 @@ private final class HelperPillView: NSVisualEffectView, NSDraggingSource {
         layer?.masksToBounds = true
 
         iconView.imageScaling = .scaleProportionallyUpOrDown
-        let label = NSTextField(labelWithString: text)
+        label.stringValue = text
         label.font = .systemFont(ofSize: 12, weight: .medium)
         label.lineBreakMode = .byTruncatingTail
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)

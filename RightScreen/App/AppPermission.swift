@@ -78,3 +78,25 @@ enum PermissionHelperPlacement {
         )
     }
 }
+
+/// 列表下方提示条的文案阶段。
+///
+/// 系统里若残留旧签名（其他渠道或旧测试版）的授权记录，打开开关也不会生效，
+/// App 又读不到该记录；因此授权迟迟不生效时，改为引导删除旧条目后重新授权。
+enum PermissionHelperHint: Equatable {
+    case turnOnOrDrag
+    case removeStaleEntry
+
+    static let staleThreshold: TimeInterval = 10
+
+    static func resolve(secondsSinceStart: TimeInterval) -> PermissionHelperHint {
+        secondsSinceStart >= staleThreshold ? .removeStaleEntry : .turnOnOrDrag
+    }
+
+    var text: String {
+        switch self {
+        case .turnOnOrDrag: localized("在上方列表打开 RightScreen，或把图标拖进去")
+        case .removeStaleEntry: localized("仍无效？选中 RightScreen 点“−”删除，再点授权")
+        }
+    }
+}
