@@ -14,27 +14,39 @@ struct AppPermissionTests {
 }
 
 struct PermissionHelperPlacementTests {
-    private let visible = CGRect(x: 0, y: 0, width: 1440, height: 875)
-    private let size = CGSize(width: 400, height: 76)
+    private let visible = CGRect(x: 0, y: 0, width: 2560, height: 1410)
+    // 实测 macOS 27 系统设置窗口：740×690，侧边栏 232pt。
+    private let settings = CGRect(x: 1216, y: 61, width: 740, height: 690)
 
-    @Test func sitsCenteredBelowSettingsWhenThereIsRoom() {
-        let settings = CGRect(x: 400, y: 300, width: 700, height: 500)
-        let frame = PermissionHelperPlacement.frame(panelSize: size, settingsFrame: settings, visibleFrame: visible)
-        #expect(frame.midX == settings.midX)
-        #expect(frame.maxY == settings.minY - PermissionHelperPlacement.gap)
+    @Test func sitsUnderTheListCenteredInTheDetailPane() {
+        let frame = PermissionHelperPlacement.frame(
+            panelSize: CGSize(width: 360, height: 36),
+            settingsFrame: settings,
+            visibleFrame: visible
+        )
+        #expect(frame.midX == settings.minX + 232 + (740 - 232) / 2)
+        #expect(frame.minY == settings.minY + PermissionHelperPlacement.bottomInset)
+        // 列表底部距窗口底边约 52pt，提示条不能盖住列表。
+        #expect(frame.maxY <= settings.minY + 52)
     }
 
-    @Test func movesBesideSettingsWhenBottomIsFull() {
-        let settings = CGRect(x: 200, y: 20, width: 700, height: 800)
-        let frame = PermissionHelperPlacement.frame(panelSize: size, settingsFrame: settings, visibleFrame: visible)
-        #expect(frame.minX == settings.maxX + PermissionHelperPlacement.gap)
+    @Test func longTextIsClampedToTheDetailPane() {
+        let frame = PermissionHelperPlacement.frame(
+            panelSize: CGSize(width: 900, height: 36),
+            settingsFrame: settings,
+            visibleFrame: visible
+        )
+        #expect(frame.width == 740 - 232 - PermissionHelperPlacement.horizontalInset * 2)
+        #expect(frame.minX >= settings.minX + 232)
+    }
+
+    @Test func staysOnScreenWhenSettingsHangsOffTheBottom() {
+        let low = CGRect(x: 100, y: -300, width: 740, height: 690)
+        let frame = PermissionHelperPlacement.frame(
+            panelSize: CGSize(width: 360, height: 36),
+            settingsFrame: low,
+            visibleFrame: visible
+        )
         #expect(visible.contains(frame))
-    }
-
-    @Test func fallsBackInsideSettingsWhenScreenIsFull() {
-        let settings = CGRect(x: 0, y: 0, width: 1440, height: 875)
-        let frame = PermissionHelperPlacement.frame(panelSize: size, settingsFrame: settings, visibleFrame: visible)
-        #expect(settings.contains(frame))
-        #expect(frame.minY == PermissionHelperPlacement.gap)
     }
 }

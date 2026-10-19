@@ -31,9 +31,17 @@ for _ in {1..50}; do
     sleep 0.1
 done
 
+# 先把旧 Contents 挪到临时目录，替换失败（如缺少「App 管理」权限）时还原，避免留下空壳 App。
 mkdir -p "$install_app"
-rm -rf "$install_app/Contents"
-mv "$staging_app/Contents" "$install_app/Contents"
+previous_contents="$staging_root/previous-Contents"
+if [[ -d "$install_app/Contents" ]]; then
+    mv "$install_app/Contents" "$previous_contents"
+fi
+if ! mv "$staging_app/Contents" "$install_app/Contents"; then
+    [[ -d "$previous_contents" ]] && mv "$previous_contents" "$install_app/Contents"
+    print -u2 "无法写入 $install_app，已保留原有版本。请在“系统设置 → 隐私与安全性 → App 管理”中允许当前终端后重试。"
+    exit 1
+fi
 
 # 移动已签名 bundle 不会改变签名。此处只做验证，避免安装后再次访问私钥。
 codesign --verify --deep --strict --verbose=2 "$install_app"

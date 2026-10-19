@@ -54,6 +54,16 @@ enum Permissions {
         }
     }
 
+    /// 让系统把 RightScreen 登记进该权限列表（开关默认关闭），用户只需打开开关。
+    /// 首次调用时系统会弹出一次授权提示；已登记过则静默返回。
+    static func registerInSettingsList(_ permission: AppPermission) {
+        switch permission {
+        case .accessibility:
+            let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
+        }
+    }
+
     /// 直接打开该权限所在的系统设置列表页。
     @MainActor
     static func openSettings(for permission: AppPermission) {

@@ -1,18 +1,20 @@
 import AppKit
 
-/// 授权时吸附在「系统设置」窗口旁的小浮窗：把 RightScreen 图标拖进上方列表即可添加并开启。
+/// 授权时贴在「系统设置」权限列表正下方的一行提示条。
+/// 整条可拖动：列表里没有 RightScreen 时，把它拖进上方列表即可添加。
 /// 只在系统设置位于前台时显示，并跟随其窗口移动。
 @MainActor
 final class PermissionDragHelper {
     private static let settingsBundleIdentifier = "com.apple.systempreferences"
-    private static let panelSize = CGSize(width: 400, height: 76)
+    private static let pillHeight: CGFloat = 36
 
     private let panel: NSPanel
+    private let pill = HelperPillView(text: localized("在上方列表打开 RightScreen，或把图标拖进去"))
     private var followTimer: Timer?
 
     init() {
         panel = NSPanel(
-            contentRect: NSRect(origin: .zero, size: Self.panelSize),
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: Self.pillHeight),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: true
@@ -25,10 +27,12 @@ final class PermissionDragHelper {
         panel.isReleasedWhenClosed = false
         panel.becomesKeyOnlyIfNeeded = true
         panel.collectionBehavior = [.moveToActiveSpace, .transient, .ignoresCycle, .fullScreenAuxiliary]
-        panel.contentView = Self.makeContent()
+        panel.contentView = pill
     }
 
     func start(for permission: AppPermission) {
+        // 先让系统把 RightScreen 登记进列表，用户打开开关即可；拖动只是登记失败时的后备。
+        Permissions.registerInSettingsList(permission)
         Permissions.openSettings(for: permission)
         followTimer?.invalidate()
         let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
@@ -36,7 +40,7 @@ final class PermissionDragHelper {
                 self?.follow()
             }
         }
-        // .common：拖动图标期间 run loop 处于 event tracking 模式，也要继续跟随。
+        // .common：拖动期间 run loop 处于 event tracking 模式，也要继续跟随。
         RunLoop.main.add(timer, forMode: .common)
         followTimer = timer
     }
@@ -60,11 +64,8 @@ final class PermissionDragHelper {
         let screen = NSScreen.screens.first { $0.frame.contains(CGPoint(x: settingsFrame.midX, y: settingsFrame.midY)) }
             ?? NSScreen.main
         guard let visibleFrame = screen?.visibleFrame else { return }
-        // 按实际内容算尺寸：英文等较长文案会把浮窗撑宽，摆放时必须用真实宽度。
-        let fitting = panel.contentView?.fittingSize ?? Self.panelSize
-        let size = CGSize(width: max(fitting.width, Self.panelSize.width), height: Self.panelSize.height)
         let frame = PermissionHelperPlacement.frame(
-            panelSize: size,
+            panelSize: CGSize(width: pill.fittingSize.width, height: Self.pillHeight),
             settingsFrame: settingsFrame,
             visibleFrame: visibleFrame
         )
@@ -104,63 +105,41 @@ final class PermissionDragHelper {
         }
         return ScreenFrameConversion.flippingY(largest, relativeTo: primaryScreen.frame)
     }
-
-    private static func makeContent() -> NSView {
-        let background = NSVisualEffectView(frame: NSRect(origin: .zero, size: panelSize))
-        background.material = .popover
-        background.state = .active
-        background.wantsLayer = true
-        background.layer?.cornerRadius = 14
-        background.layer?.masksToBounds = true
-
-        let arrow = NSImageView(image: NSImage(systemSymbolName: "arrow.up", accessibilityDescription: nil) ?? NSImage())
-        arrow.symbolConfiguration = .init(pointSize: 20, weight: .semibold)
-        arrow.contentTintColor = .controlAccentColor
-
-        let title = NSTextField(labelWithString: localized("把 RightScreen 拖到上方列表中"))
-        title.font = .systemFont(ofSize: 13, weight: .semibold)
-        let subtitle = NSTextField(labelWithString: localized("已在列表中？直接打开它的开关"))
-        subtitle.font = .systemFont(ofSize: 11)
-        subtitle.textColor = .secondaryLabelColor
-        let texts = NSStackView(views: [title, subtitle])
-        texts.orientation = .vertical
-        texts.alignment = .leading
-        texts.spacing = 2
-
-        let dragSource = AppDragSourceView()
-
-        let row = NSStackView(views: [arrow, texts, NSView(), dragSource])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 12
-        row.edgeInsets = NSEdgeInsets(top: 0, left: 18, bottom: 0, right: 14)
-        row.translatesAutoresizingMaskIntoConstraints = false
-        background.addSubview(row)
-        NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: background.leadingAnchor),
-            row.trailingAnchor.constraint(equalTo: background.trailingAnchor),
-            row.topAnchor.constraint(equalTo: background.topAnchor),
-            row.bottomAnchor.constraint(equalTo: background.bottomAnchor)
-        ])
-        return background
-    }
 }
 
-/// 可拖动的 RightScreen 图标块；拖出的是 App 自身的文件 URL，系统设置的权限列表据此添加。
-private final class AppDragSourceView: NSView, NSDraggingSource {
-    private static let iconSize: CGFloat = 40
+/// 一行胶囊提示：App 图标 + 文案。整条都是拖动源，拖出的是 App 自身的文件 URL。
+private final class HelperPillView: NSVisualEffectView, NSDraggingSource {
+    private let iconView = NSImageView(image: NSApp.applicationIconImage)
 
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
+    init(text: String) {
+        super.init(frame: .zero)
+        material = .popover
+        state = .active
         wantsLayer = true
-        layer?.cornerRadius = 10
-        layer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
-        toolTip = localized("拖动到系统设置的列表中")
-        translatesAutoresizingMaskIntoConstraints = false
+        layer?.cornerRadius = 18
+        layer?.masksToBounds = true
+
+        iconView.imageScaling = .scaleProportionallyUpOrDown
+        let label = NSTextField(labelWithString: text)
+        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.lineBreakMode = .byTruncatingTail
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let row = NSStackView(views: [iconView, label])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 8
+        row.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: 14)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: 128),
-            heightAnchor.constraint(equalToConstant: 52)
+            iconView.widthAnchor.constraint(equalToConstant: 26),
+            iconView.heightAnchor.constraint(equalToConstant: 26),
+            row.leadingAnchor.constraint(equalTo: leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor),
+            row.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
+        toolTip = text
     }
 
     @available(*, unavailable)
@@ -168,18 +147,9 @@ private final class AppDragSourceView: NSView, NSDraggingSource {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private var iconFrame: NSRect {
-        NSRect(x: 6, y: (bounds.height - Self.iconSize) / 2, width: Self.iconSize, height: Self.iconSize)
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        NSApp.applicationIconImage.draw(in: iconFrame)
-        let name = NSAttributedString(
-            string: "RightScreen",
-            attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.labelColor]
-        )
-        let size = name.size()
-        name.draw(at: NSPoint(x: iconFrame.maxX + 6, y: (bounds.height - size.height) / 2))
+    /// 子视图（文字、图标）不截获鼠标，整条都能拖。
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        frame.contains(point) ? self : nil
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -192,7 +162,7 @@ private final class AppDragSourceView: NSView, NSDraggingSource {
 
     override func mouseDragged(with event: NSEvent) {
         let item = NSDraggingItem(pasteboardWriter: Bundle.main.bundleURL as NSURL)
-        item.setDraggingFrame(iconFrame, contents: NSApp.applicationIconImage)
+        item.setDraggingFrame(iconView.frame(in: self), contents: NSApp.applicationIconImage)
         beginDraggingSession(with: [item], event: event, source: self)
     }
 
@@ -200,6 +170,12 @@ private final class AppDragSourceView: NSView, NSDraggingSource {
         _ session: NSDraggingSession,
         sourceOperationMaskFor context: NSDraggingContext
     ) -> NSDragOperation {
-        context == .outsideApplication ? .copy : []
+        context == .outsideApplication ? [.copy, .link, .generic] : []
+    }
+}
+
+private extension NSView {
+    func frame(in ancestor: NSView) -> NSRect {
+        superview?.convert(frame, to: ancestor) ?? frame
     }
 }

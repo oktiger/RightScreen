@@ -69,6 +69,4 @@
 "辅助功能" = "Accessibility";
 "设备控制和数据访问" = "Device Control and Data Access";
 "移动和调整其他 App 的窗口" = "Move and resize other apps’ windows";
-"把 RightScreen 拖到上方列表中" = "Drag RightScreen into the list above";
-"已在列表中？直接打开它的开关" = "Already listed? Just turn on its switch";
-"拖动到系统设置的列表中" = "Drag into the list in System Settings";
+"在上方列表打开 RightScreen，或把图标拖进去" = "Turn on RightScreen above, or drag the icon in";
