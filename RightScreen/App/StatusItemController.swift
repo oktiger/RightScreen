@@ -201,7 +201,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func openAccessibilitySettings() {
         if Permissions.signingIssue == nil, Permissions.isAccessibilityGranted {
-            Permissions.openAccessibilitySettings(promptIfNeeded: false)
+            Permissions.openSettings(for: .accessibility)
             return
         }
         onOpenPermissionGuide()

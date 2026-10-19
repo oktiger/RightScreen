@@ -48,31 +48,16 @@ enum Permissions {
         return localized("当前 app 使用了临时 adhoc/linker-signed 签名。")
     }
 
-    /// 弹出系统辅助功能授权框（如需要）。不要与自定义 Alert 叠在一起调用。
-    @discardableResult
-    static func requestAccessibility() -> Bool {
-        guard signingIssue == nil else {
-            return false
+    static func isGranted(_ permission: AppPermission) -> Bool {
+        switch permission {
+        case .accessibility: isAccessibilityGranted
         }
-        if isAccessibilityGranted {
-            return true
-        }
-        let promptKey = "AXTrustedCheckOptionPrompt"
-        let options = [promptKey: true] as CFDictionary
-        return AXIsProcessTrustedWithOptions(options)
     }
 
+    /// 直接打开该权限所在的系统设置列表页。
     @MainActor
-    static func openAccessibilitySettings(promptIfNeeded: Bool = false) {
-        if promptIfNeeded {
-            _ = requestAccessibility()
-        }
-
-        let candidates = [
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility"
-        ]
-        for urlString in candidates {
+    static func openSettings(for permission: AppPermission) {
+        for urlString in permission.settingsURLs {
             if let url = URL(string: urlString), NSWorkspace.shared.open(url) {
                 return
             }
