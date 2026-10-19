@@ -35,6 +35,14 @@ Scripts/package-appstore.sh dist/profiles/RightScreen_Mac_App_Store.provisionpro
 
 上传走 `xcodebuild -exportArchive`，使用 Xcode → 设置 → Accounts 中已登录的账号，不需要 API Key 或密码；也可以把 pkg 拖进 Transporter。
 
+本机没有分发证书或描述文件时，用云签名上传（证书由 Apple 托管、描述文件自动生成，只需 Xcode 已登录账号）：
+
+```bash
+Scripts/upload-testflight.sh
+```
+
+处理完成后构建版本出现在 App Store Connect → TestFlight；在「内部测试」组加入自己的 Apple ID，其他 Mac 装 TestFlight App 登录同一账号即可安装。
+
 每次上传 `CFBundleVersion` 必须更大，脚本默认取 git 提交数；改版本号改 `Info.plist` 的 `CFBundleShortVersionString`。
 
 ## 5. App Store Connect 材料
