@@ -39,4 +39,16 @@ struct LayoutPauseTests {
         let resumed = pause.end(.systemAsleep)
         #expect(resumed)
     }
+
+    /// 解锁时清掉所有原因：哪怕「亮屏」「会话回到前台」的通知漏发，布局也会恢复。
+    @Test func unlockClearsEveryReason() {
+        var pause = LayoutPause()
+        pause.begin(.screenLocked)
+        pause.begin(.sessionInactive)
+        let resumed = pause.endAll()
+        #expect(resumed)
+        #expect(!pause.isPaused)
+        let resumedAgain = pause.endAll()
+        #expect(!resumedAgain)
+    }
 }

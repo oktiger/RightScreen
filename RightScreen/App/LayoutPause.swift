@@ -33,4 +33,13 @@ struct LayoutPause {
         guard reasons.remove(reason) != nil else { return false }
         return !isPaused
     }
+
+    /// 解锁意味着用户已经回到桌面：屏幕亮着、会话在前台、系统醒着。
+    /// 一并清掉其他原因，免得某个配对通知漏发让布局一直停着。
+    @discardableResult
+    mutating func endAll() -> Bool {
+        guard isPaused else { return false }
+        reasons.removeAll()
+        return true
+    }
 }

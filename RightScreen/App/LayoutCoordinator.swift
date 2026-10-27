@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 
 @MainActor
 final class LayoutCoordinator {
@@ -33,8 +34,14 @@ final class LayoutCoordinator {
         .milliseconds(250),
         .milliseconds(700)
     ]
-    /// 亮屏/解锁后显示器与窗口名单要过一会儿才回到原样，等稳定后再恢复维护。
-    private static let resumeDelay: Duration = .milliseconds(1500)
+    /// 亮屏/解锁后显示器与窗口名单要过一会儿才回到原样。
+    /// 电视、部分外接屏解锁后还会掉线重连一次，所以分几轮按当前屏幕重算格位并把窗口叠回前台。
+    private static let resumeRelayoutDelays: [Duration] = [
+        .milliseconds(1500),
+        .seconds(3),
+        .seconds(6)
+    ]
+    private static let pauseLog = Logger(subsystem: "com.rightscreen.RightScreenApp", category: "Pause")
 
     /// 未授权辅助功能时调用，由 AppDelegate 弹出权限引导窗口。
     var onAccessibilityMissing: (() -> Void)?
@@ -238,28 +245,86 @@ final class LayoutCoordinator {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.endPause(.screenLocked) }
+            MainActor.assumeIsolated { self?.endAllPauses() }
         }
     }
 
     private func beginPause(_ reason: LayoutPause.Reason) {
         resumeTask?.cancel()
         resumeTask = nil
-        guard pause.begin(reason), hasActiveLayout else { return }
+        let started = pause.begin(reason)
+        Self.pauseLog.notice("pause begin \(String(describing: reason), privacy: .public) started=\(started) active=\(self.hasActiveLayout)")
+        guard started, hasActiveLayout else { return }
+        logLayoutSnapshot("paused")
         stopMaintenance()
     }
 
     private func endPause(_ reason: LayoutPause.Reason) {
-        guard pause.end(reason), hasActiveLayout else { return }
+        let resumed = pause.end(reason)
+        Self.pauseLog.notice("pause end \(String(describing: reason), privacy: .public) resumed=\(resumed)")
+        if resumed {
+            scheduleResume()
+        }
+    }
+
+    private func endAllPauses() {
+        let resumed = pause.endAll()
+        Self.pauseLog.notice("pause end all (unlock) resumed=\(resumed)")
+        if resumed {
+            scheduleResume()
+        }
+    }
+
+    private func scheduleResume() {
+        guard hasActiveLayout else { return }
         resumeTask?.cancel()
         resumeTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: Self.resumeDelay)
-            guard let self, !Task.isCancelled, !self.pause.isPaused, self.hasActiveLayout else { return }
-            self.resumeTask = nil
-            // 只按当前屏幕重算格位尺寸，窗口留在原来的格子里。
-            self.relayoutForCurrentScreens()
-            self.startObservingWindows()
+            var elapsed: Duration = .zero
+            for (round, delay) in Self.resumeRelayoutDelays.enumerated() {
+                try? await Task.sleep(for: delay - elapsed)
+                elapsed = delay
+                guard let self, !Task.isCancelled, !self.pause.isPaused, self.hasActiveLayout else { return }
+                self.logLayoutSnapshot("resume round \(round) before")
+                // 只按当前屏幕重算格位尺寸，窗口留在原来的格子里。
+                self.relayoutForCurrentScreens()
+                if round == 0 {
+                    self.startObservingWindows()
+                }
+                self.bringLayoutToFront()
+                self.logLayoutSnapshot("resume round \(round) after")
+            }
+            self?.resumeTask = nil
         }
+    }
+
+    /// 显示器掉线重连后，系统可能把窗口叠到别的窗口后面；把各格当前显示的窗口重新叠回前台。
+    private func bringLayoutToFront() {
+        let visible = visibleManagedWindows()
+        let managed = session.map { $0.panes.flatMap(\.windows) }
+            ?? bentoSession.map { BentoEngine.leafValues($0.tree) }
+            ?? []
+        guard let front = windowController.focusedManagedWindow(in: managed)
+            .flatMap({ focused in visible.first(where: { $0.windowID == focused.windowID }) })
+            ?? visible.first
+        else {
+            return
+        }
+        restackVisibleWindows(keepingFront: front, forced: true)
+    }
+
+    private func logLayoutSnapshot(_ label: String) {
+        let screens = NSScreen.screens.map { screen in
+            "\(ScreenIdentity.displayID(of: screen)):\(NSStringFromRect(screen.frame))"
+        }.joined(separator: " ")
+        let onScreen = windowController.onScreenWindowIDs()
+        let windows = (session.map { $0.panes.flatMap(\.windows) }
+            ?? bentoSession.map { BentoEngine.leafValues($0.tree) }
+            ?? []).map { window in
+            let frame = AXHelpers.frame(of: window.element).map { NSStringFromRect($0) } ?? "nil"
+            let listed = onScreen.map { $0.contains(window.windowID) ? "on" : "off" } ?? "?"
+            return "\(window.windowID)[\(listed)]\(frame)"
+        }.joined(separator: " ")
+        Self.pauseLog.notice("\(label, privacy: .public) screens=\(screens, privacy: .public) windows=\(windows, privacy: .public)")
     }
 
     // MARK: - Bento
@@ -1448,8 +1513,11 @@ final class LayoutCoordinator {
     }
 
     @objc private func screenParametersDidChange(_ notification: Notification) {
-        // 息屏期间的显示器变化是临时的，恢复时统一重算一次。
-        guard !pause.isPaused else { return }
+        // 息屏期间的显示器变化是临时的，恢复时统一重算。
+        guard !pause.isPaused else {
+            Self.pauseLog.notice("screen parameters changed while paused")
+            return
+        }
         scheduleScreenRelayout()
     }
 
