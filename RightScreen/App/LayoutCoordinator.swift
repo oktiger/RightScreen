@@ -33,6 +33,8 @@ final class LayoutCoordinator {
         .milliseconds(250),
         .milliseconds(700)
     ]
+    /// 亮屏/解锁后显示器与窗口名单要过一会儿才回到原样，等稳定后再恢复维护。
+    private static let resumeDelay: Duration = .milliseconds(1500)
 
     /// 未授权辅助功能时调用，由 AppDelegate 弹出权限引导窗口。
     var onAccessibilityMissing: (() -> Void)?
@@ -56,6 +58,8 @@ final class LayoutCoordinator {
     /// raise 引发的激活通知是异步回来的，同步标志拦不住；这里用一小段静默期兜住。
     private var stackRestackSuppressedUntil: Date?
     private var stackRecheckTask: Task<Void, Never>?
+    private var pause = LayoutPause()
+    private var resumeTask: Task<Void, Never>?
 
     init() {
         NotificationCenter.default.addObserver(
@@ -64,6 +68,7 @@ final class LayoutCoordinator {
             name: NSApplication.didChangeScreenParametersNotification,
             object: nil
         )
+        observeSystemPause()
     }
     private lazy var windowObservationService = WindowObservationService(
         onWindowCreated: { [weak self] pid in
@@ -149,24 +154,7 @@ final class LayoutCoordinator {
     }
 
     func exitLayout() {
-        windowObservationService.stop()
-        reconciliationTimer?.invalidate()
-        reconciliationTimer = nil
-        for task in reconciliationTasks.values {
-            task.cancel()
-        }
-        reconciliationTasks.removeAll()
-        cancelAllAdoptions()
-        cancelAllFrameEnforcement()
-        for task in closeTasks.values {
-            task.cancel()
-        }
-        closeTasks.removeAll()
-        stackRecheckTask?.cancel()
-        stackRecheckTask = nil
-        stackRestackSuppressedUntil = nil
-        screenRelayoutTask?.cancel()
-        screenRelayoutTask = nil
+        stopMaintenance()
         closingWindowIDs.removeAll()
         destroyedWindowIDs.removeAll()
 
@@ -188,6 +176,89 @@ final class LayoutCoordinator {
                 bentoSession.originalFrames,
                 windows: BentoEngine.leafValues(bentoSession.tree)
             )
+        }
+    }
+
+    /// 停掉所有监听、定时巡检和待执行的重排，但保留当前布局。
+    private func stopMaintenance() {
+        windowObservationService.stop()
+        reconciliationTimer?.invalidate()
+        reconciliationTimer = nil
+        for task in reconciliationTasks.values {
+            task.cancel()
+        }
+        reconciliationTasks.removeAll()
+        cancelAllAdoptions()
+        cancelAllFrameEnforcement()
+        for task in closeTasks.values {
+            task.cancel()
+        }
+        closeTasks.removeAll()
+        stackRecheckTask?.cancel()
+        stackRecheckTask = nil
+        stackRestackSuppressedUntil = nil
+        screenRelayoutTask?.cancel()
+        screenRelayoutTask = nil
+        resumeTask?.cancel()
+        resumeTask = nil
+    }
+
+    // MARK: - 息屏与锁屏
+
+    private func observeSystemPause() {
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        let pairs: [(Notification.Name, Notification.Name, LayoutPause.Reason)] = [
+            (NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification, .screensAsleep),
+            (NSWorkspace.willSleepNotification, NSWorkspace.didWakeNotification, .systemAsleep),
+            (
+                NSWorkspace.sessionDidResignActiveNotification,
+                NSWorkspace.sessionDidBecomeActiveNotification,
+                .sessionInactive
+            )
+        ]
+        for (beginName, endName, reason) in pairs {
+            workspaceCenter.addObserver(forName: beginName, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.beginPause(reason) }
+            }
+            workspaceCenter.addObserver(forName: endName, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.endPause(reason) }
+            }
+        }
+
+        let distributedCenter = DistributedNotificationCenter.default()
+        distributedCenter.addObserver(
+            forName: Notification.Name("com.apple.screenIsLocked"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.beginPause(.screenLocked) }
+        }
+        distributedCenter.addObserver(
+            forName: Notification.Name("com.apple.screenIsUnlocked"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.endPause(.screenLocked) }
+        }
+    }
+
+    private func beginPause(_ reason: LayoutPause.Reason) {
+        resumeTask?.cancel()
+        resumeTask = nil
+        guard pause.begin(reason), hasActiveLayout else { return }
+        stopMaintenance()
+    }
+
+    private func endPause(_ reason: LayoutPause.Reason) {
+        guard pause.end(reason), hasActiveLayout else { return }
+        resumeTask?.cancel()
+        resumeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.resumeDelay)
+            guard let self, !Task.isCancelled, !self.pause.isPaused, self.hasActiveLayout else { return }
+            self.resumeTask = nil
+            // 只按当前屏幕重算格位尺寸，窗口留在原来的格子里。
+            self.relayoutForCurrentScreens()
+            self.startObservingWindows()
         }
     }
 
@@ -546,6 +617,7 @@ final class LayoutCoordinator {
 
     /// AX 通知偶尔会被个别 App 漏发；低频全量校准只作为容错，不再承担实时发现。
     @objc private func reconcileAllWindows() {
+        guard !pause.isPaused else { return }
         if let session {
             refreshTabSession(session, discoverNewWindows: true)
         } else if let bentoSession {
@@ -1376,6 +1448,8 @@ final class LayoutCoordinator {
     }
 
     @objc private func screenParametersDidChange(_ notification: Notification) {
+        // 息屏期间的显示器变化是临时的，恢复时统一重算一次。
+        guard !pause.isPaused else { return }
         scheduleScreenRelayout()
     }
 
