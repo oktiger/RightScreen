@@ -51,17 +51,20 @@ final class WindowObservationService: NSObject {
     private let onWindowCreated: (pid_t) -> Void
     private let onWindowStateChanged: () -> Void
     private let onFocusChanged: () -> Void
+    private let onTitleChanged: () -> Void
     private var registrations: [pid_t: Registration] = [:]
     private var isRunning = false
 
     init(
         onWindowCreated: @escaping (pid_t) -> Void,
         onWindowStateChanged: @escaping () -> Void,
-        onFocusChanged: @escaping () -> Void
+        onFocusChanged: @escaping () -> Void,
+        onTitleChanged: @escaping () -> Void
     ) {
         self.onWindowCreated = onWindowCreated
         self.onWindowStateChanged = onWindowStateChanged
         self.onFocusChanged = onFocusChanged
+        self.onTitleChanged = onTitleChanged
     }
 
     func start() {
@@ -166,7 +169,7 @@ final class WindowObservationService: NSObject {
         )
 
         // 覆盖 App 在观察器安装完成前已创建首个窗口的竞态。
-        observeDestructionOfExistingWindows(for: pid)
+        observeExistingWindows(for: pid)
         if reconcileAfterRegistration {
             onWindowCreated(pid)
         }
@@ -181,19 +184,27 @@ final class WindowObservationService: NSObject {
         )
     }
 
-    private func observeDestructionOfExistingWindows(for pid: pid_t) {
+    private func observeExistingWindows(for pid: pid_t) {
         guard let registration = registrations[pid] else { return }
         for window in AXHelpers.windows(of: registration.applicationElement) {
-            observeDestruction(of: window, registration: registration)
+            observeWindow(window, registration: registration)
         }
     }
 
-    private func observeDestruction(of window: AXUIElement, registration: Registration) {
+    private func observeWindow(_ window: AXUIElement, registration: Registration) {
+        let refcon = Unmanaged.passUnretained(self).toOpaque()
         _ = AXObserverAddNotification(
             registration.observer,
             window,
             kAXUIElementDestroyedNotification as CFString,
-            Unmanaged.passUnretained(self).toOpaque()
+            refcon
+        )
+        // Tab 标题取窗口标题；页面切换后标题会变，需要跟着刷新。
+        _ = AXObserverAddNotification(
+            registration.observer,
+            window,
+            kAXTitleChangedNotification as CFString,
+            refcon
         )
     }
 
@@ -211,12 +222,14 @@ final class WindowObservationService: NSObject {
 
         switch notification {
         case kAXWindowCreatedNotification:
-            observeDestruction(of: element, registration: registration)
+            observeWindow(element, registration: registration)
             onWindowCreated(pid)
         case kAXUIElementDestroyedNotification:
             onWindowStateChanged()
         case kAXFocusedWindowChangedNotification:
             onFocusChanged()
+        case kAXTitleChangedNotification:
+            onTitleChanged()
         default:
             break
         }

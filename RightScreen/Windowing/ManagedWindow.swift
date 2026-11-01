@@ -14,6 +14,20 @@ struct ManagedWindow {
         ownerPID == other.ownerPID && CFEqual(element, other.element)
     }
 
+    /// 窗口标题会随页面切换而变化（Electron 窗口刚创建时常先报应用名），
+    /// 布局里保存的窗口需要用最新标题替换旧值。
+    func withTitle(_ newTitle: String) -> ManagedWindow {
+        ManagedWindow(
+            windowID: windowID,
+            ownerPID: ownerPID,
+            bundleIdentifier: bundleIdentifier,
+            appName: appName,
+            title: newTitle,
+            frame: frame,
+            element: element
+        )
+    }
+
     var tabTitle: String {
         let trimmedWindowTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedWindowTitle.isEmpty {

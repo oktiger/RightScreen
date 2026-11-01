@@ -86,6 +86,9 @@ final class LayoutCoordinator {
         },
         onFocusChanged: { [weak self] in
             self?.refreshFocusedTab()
+        },
+        onTitleChanged: { [weak self] in
+            self?.refreshWindowTitles()
         }
     )
     private(set) var session: LayoutSession?
@@ -683,6 +686,8 @@ final class LayoutCoordinator {
     /// AX 通知偶尔会被个别 App 漏发；低频全量校准只作为容错，不再承担实时发现。
     @objc private func reconcileAllWindows() {
         guard !pause.isPaused else { return }
+        // 个别 App 不发标题变化通知，低频校准时顺带补上。
+        refreshWindowTitles()
         if let session {
             refreshTabSession(session, discoverNewWindows: true)
         } else if let bentoSession {
@@ -696,6 +701,33 @@ final class LayoutCoordinator {
         } else if let bentoSession {
             refreshBentoSession(bentoSession, discoverNewWindows: false)
         }
+    }
+
+    /// 布局里保存的是接管那一刻的窗口标题；重新读取 AX 标题，变化时更新 Tab 条。
+    private func refreshWindowTitles() {
+        if let session {
+            for paneIndex in session.panes.indices {
+                let windows = session.panes[paneIndex].windows
+                let refreshed = windows.map(currentTitleWindow)
+                guard zip(windows, refreshed).contains(where: { $0.title != $1.title }) else {
+                    continue
+                }
+                session.panes[paneIndex].windows = refreshed
+                createOrUpdateTabBar(forPane: paneIndex, in: session, bringToFront: false)
+            }
+        } else if let bentoSession {
+            bentoSession.tree = BentoEngine.mapLeaves(bentoSession.tree, transform: currentTitleWindow)
+        }
+    }
+
+    private func currentTitleWindow(_ window: ManagedWindow) -> ManagedWindow {
+        guard
+            let title = AXHelpers.string(kAXTitleAttribute as CFString, of: window.element),
+            title != window.title
+        else {
+            return window
+        }
+        return window.withTitle(title)
     }
 
     private func refreshFocusedTab() {

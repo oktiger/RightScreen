@@ -43,6 +43,15 @@ struct ManagedWindowTests {
         #expect(first.refersToSameAccessibilityWindow(as: second))
     }
 
+    @Test func withTitleReplacesOnlyTheTitle() {
+        let window = makeWindow(windowID: 7, appName: "OpenBeast", title: "OpenBeast")
+        let renamed = window.withTitle("MediaHub")
+
+        #expect(renamed.tabTitle == "MediaHub")
+        #expect(renamed.windowID == 7)
+        #expect(renamed.refersToSameAccessibilityWindow(as: window))
+    }
+
     private func makeWindow(
         windowID: CGWindowID = 1,
         bundleIdentifier: String = "com.example.app",
