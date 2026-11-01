@@ -3,6 +3,46 @@ import Testing
 @testable import RightScreen
 
 struct LayoutEngineTests {
+    @Test func assignByPlacementKeepsWindowsInThePaneTheyCover() {
+        let paneFrames = [
+            CGRect(x: 0, y: 0, width: 100, height: 100),
+            CGRect(x: 100, y: 0, width: 100, height: 100),
+        ]
+        let windowFrames = [
+            CGRect(x: 100, y: 0, width: 100, height: 100),
+            CGRect(x: 0, y: 0, width: 100, height: 100),
+            CGRect(x: 110, y: 10, width: 80, height: 80),
+        ]
+
+        let panes = LayoutEngine.assignByPlacement(
+            ["a", "b", "c"],
+            windowFrames: windowFrames,
+            paneFrames: paneFrames
+        )
+
+        #expect(panes == [["b"], ["a", "c"]])
+    }
+
+    @Test func assignByPlacementKeepsOffscreenWindows() {
+        let paneFrames = [
+            CGRect(x: 0, y: 0, width: 100, height: 100),
+            CGRect(x: 100, y: 0, width: 100, height: 100),
+        ]
+        let windowFrames = [
+            CGRect(x: 0, y: 0, width: 100, height: 100),
+            CGRect(x: 500, y: 500, width: 50, height: 50),
+        ]
+
+        let panes = LayoutEngine.assignByPlacement(
+            [1, 2],
+            windowFrames: windowFrames,
+            paneFrames: paneFrames
+        )
+
+        #expect(panes.flatMap { $0 }.sorted() == [1, 2])
+        #expect(panes[0].first == 1)
+    }
+
     @Test func split2DistributesSixItemsEvenly() {
         let panes = LayoutEngine.assign(Array(0..<6), paneCount: 2)
         #expect(panes == [[0, 1, 2], [3, 4, 5]])

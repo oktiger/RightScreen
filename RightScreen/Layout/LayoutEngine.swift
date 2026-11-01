@@ -19,6 +19,28 @@ enum LayoutEngine {
         }
     }
 
+    /// 按窗口当前位置分格（重启后恢复布局用）：沿用新窗口落点规则，窗口保持原有先后顺序。
+    /// `windowFrames` / `paneFrames` 须同为 AppKit 坐标。
+    static func assignByPlacement<T>(
+        _ items: [T],
+        windowFrames: [CGRect],
+        paneFrames: [CGRect]
+    ) -> [[T]] {
+        var panes: [[T]] = Array(repeating: [], count: paneFrames.count)
+        guard !panes.isEmpty, items.count == windowFrames.count else { return panes }
+
+        for (item, frame) in zip(items, windowFrames) {
+            let index = NewWindowPlacement.paneIndex(
+                windowFrame: frame,
+                paneFrames: paneFrames,
+                lastFocusedPaneIndex: 0,
+                paneWindowCounts: panes.map(\.count)
+            ) ?? 0
+            panes[index].append(item)
+        }
+        return panes
+    }
+
     static func geometries(
         for kind: LayoutKind,
         in visibleFrame: CGRect,

@@ -52,10 +52,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 每次启动都检查：未授权（或安装包身份不对）时主动弹出引导窗口。
         permissionGuide.showIfNeeded()
+
+        // 稍等其它 App 的窗口就绪，再接回上次的布局。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak coordinator] in
+            coordinator?.restoreRememberedLayout()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        layoutCoordinator?.exitLayout()
+        // 走到这里多半是关机或注销（菜单「退出」已先退出布局），保留布局下次接回。
+        layoutCoordinator?.exitLayout(keepingRememberedLayout: true)
         hotKeyCenter?.invalidate()
     }
 }

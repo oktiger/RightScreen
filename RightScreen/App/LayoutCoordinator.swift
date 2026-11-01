@@ -48,6 +48,7 @@ final class LayoutCoordinator {
 
     private let windowIndexer = WindowIndexer()
     private let windowController = WindowController()
+    private let layoutMemory = LayoutMemory()
     private var reconciliationTimer: Timer?
     private var reconciliationTasks: [pid_t: Task<Void, Never>] = [:]
     private var adoptionTasks: [CGWindowID: Task<Void, Never>] = [:]
@@ -126,9 +127,52 @@ final class LayoutCoordinator {
         guard let screen = primaryScreen() else { return }
         guard let windows = manageableWindows() else { return }
 
+        beginLayout(
+            kind,
+            on: screen,
+            windowsByPane: LayoutEngine.assign(windows, paneCount: kind.paneCount)
+        )
+    }
+
+    /// 启动时接回上次没有被用户主动退出的布局。窗口按当前位置归格，
+    /// 因此 RightScreen 更新重启后各窗口仍在原来那一格。
+    func restoreRememberedLayout() {
+        guard
+            !hasActiveLayout,
+            let remembered = layoutMemory.current,
+            Permissions.signingIssue == nil,
+            Permissions.isAccessibilityGranted,
+            let screen = primaryScreen()
+        else {
+            return
+        }
+        let windows = windowIndexer.currentSpaceWindows()
+        guard !windows.isEmpty else { return }
+
+        switch remembered {
+        case .tabs(let kind):
+            let geometries = LayoutEngine.geometries(for: kind, in: screen.visibleFrame)
+            beginLayout(
+                kind,
+                on: screen,
+                windowsByPane: LayoutEngine.assignByPlacement(
+                    windows,
+                    windowFrames: windows.map { ScreenIdentity.convertFrame($0.frame) },
+                    paneFrames: geometries.map(\.paneFrame)
+                )
+            )
+        case .grid:
+            startBento()
+        }
+    }
+
+    private func beginLayout(
+        _ kind: LayoutKind,
+        on screen: NSScreen,
+        windowsByPane: [[ManagedWindow]]
+    ) {
         exitLayout()
 
-        let windowsByPane = LayoutEngine.assign(windows, paneCount: kind.paneCount)
         let geometries = LayoutEngine.geometries(for: kind, in: screen.visibleFrame)
         let newSession = LayoutSession(
             kind: kind,
@@ -143,6 +187,7 @@ final class LayoutCoordinator {
         applyInitialLayout(newSession)
         createTabBars(for: newSession)
         startObservingWindows()
+        layoutMemory.remember(.tabs(kind))
     }
 
     func startBento() {
@@ -161,9 +206,15 @@ final class LayoutCoordinator {
         applyBentoFrames(newSession)
         installBentoChrome(for: newSession)
         startObservingWindows()
+        layoutMemory.remember(.grid)
     }
 
-    func exitLayout() {
+    /// - Parameter keepingRememberedLayout: 系统关机或注销时为 true：窗口留在格位、
+    ///   保留布局记忆，下次启动原样接回；其余退出都会忘掉布局并把窗口放回原位。
+    func exitLayout(keepingRememberedLayout: Bool = false) {
+        if !keepingRememberedLayout {
+            layoutMemory.forget()
+        }
         stopMaintenance()
         closingWindowIDs.removeAll()
         destroyedWindowIDs.removeAll()
@@ -174,7 +225,9 @@ final class LayoutCoordinator {
                 panel.orderOut(nil)
                 panel.close()
             }
-            restoreOriginalFrames(session.originalFrames, windows: session.panes.flatMap(\.windows))
+            if !keepingRememberedLayout {
+                restoreOriginalFrames(session.originalFrames, windows: session.panes.flatMap(\.windows))
+            }
         }
 
         if let bentoSession {
@@ -182,10 +235,12 @@ final class LayoutCoordinator {
             bentoSession.dividerController?.tearDown()
             bentoSession.previewPanel?.hidePreview()
             bentoSession.previewPanel?.close()
-            restoreOriginalFrames(
-                bentoSession.originalFrames,
-                windows: BentoEngine.leafValues(bentoSession.tree)
-            )
+            if !keepingRememberedLayout {
+                restoreOriginalFrames(
+                    bentoSession.originalFrames,
+                    windows: BentoEngine.leafValues(bentoSession.tree)
+                )
+            }
         }
     }
 
