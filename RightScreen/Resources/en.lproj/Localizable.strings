@@ -57,7 +57,6 @@
 "上下二分" = "Top/Bottom Split";
 "四等分" = "Quarters";
 "%ld 格" = "%ld panes";
-"%@：%@" = "%@: %@";
 "应用" = "App";
 "1 格" = "1 pane";
 "还有 1 个窗口" = "1 more window";

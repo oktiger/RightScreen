@@ -15,21 +15,11 @@ struct ManagedWindow {
     }
 
     var tabTitle: String {
-        let trimmedAppName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedWindowTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if isGoogleChrome, !trimmedAppName.isEmpty, !trimmedWindowTitle.isEmpty {
-            return localized("%@：%@", trimmedAppName, trimmedWindowTitle)
+        if !trimmedWindowTitle.isEmpty {
+            return trimmedWindowTitle
         }
 
-        if !trimmedAppName.isEmpty {
-            return trimmedAppName
-        }
-
-        return trimmedWindowTitle
-    }
-
-    private var isGoogleChrome: Bool {
-        bundleIdentifier?.lowercased().hasPrefix("com.google.chrome") == true
+        return appName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
