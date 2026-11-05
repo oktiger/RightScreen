@@ -82,22 +82,41 @@ else
             "$certificate_file" || true
     fi
 
+    # 专用钥匙串绝不能进入用户搜索列表：它不随登录解锁，
+    # 一旦在搜索列表里，系统中任何应用访问钥匙串都会撞上它，
+    # macOS 就会反复弹窗要求输入 RightScreen 钥匙串的密码。
+    # codesign 与 find-identity 都已显式传入 --keychain / 路径，无需全局可见。
+    search_list=("${(@f)$(security list-keychains -d user | sed -E 's/^[[:space:]]*"(.*)"$/\1/')}")
+    if (( ${search_list[(Ie)$signing_keychain]} != 0 )); then
+        kept_keychains=()
+        for keychain_path in "${search_list[@]}"; do
+            [[ -n "$keychain_path" && "$keychain_path" != "$signing_keychain" ]] && kept_keychains+=("$keychain_path")
+        done
+        if (( ${#kept_keychains} > 0 )); then
+            security list-keychains -d user -s "${kept_keychains[@]}"
+        fi
+    fi
+
     # 每次签名前都修复专用钥匙串状态，兼容旧版脚本创建的钥匙串。
+    # 无参数的 set-keychain-settings 表示不自动锁定，避免签名中途被锁。
+    if ! security unlock-keychain -p "$keychain_password" "$signing_keychain" 2>/dev/null; then
+        print -u2 "无法用已保存的密码解锁本地签名钥匙串：$signing_keychain"
+        print -u2 "该钥匙串的密码与 $password_file 已不一致，codesign 会弹窗索取无人知道的密码。"
+        print -u2 "请重建本地开发签名身份（会改变 Designated Requirement，需要在"
+        print -u2 "「系统设置 → 隐私与安全性 → 辅助功能」中重新授权 RightScreen 一次）："
+        print -u2 "  rm -rf \"$signing_directory\""
+        print -u2 "  RIGHTSCREEN_ALLOW_SIGNING_MIGRATION=1 Scripts/run-local.sh"
+        exit 1
+    fi
+    security set-keychain-settings "$signing_keychain"
     # partition list 明确允许 Apple 签名工具非交互访问私钥，
     # 避免本地重建时反复弹出“codesign 想使用 RightScreen 钥匙串”。
-    security unlock-keychain -p "$keychain_password" "$signing_keychain"
-    security set-keychain-settings -l -u -t 21600 "$signing_keychain"
     security set-key-partition-list \
         -S apple-tool:,apple:,codesign: \
         -s \
         -k "$keychain_password" \
         "$signing_keychain" \
         >/dev/null
-
-    existing_keychains=("${(@f)$(security list-keychains -d user | sed -E 's/^[[:space:]]*"(.*)"$/\1/')}")
-    if (( ${existing_keychains[(Ie)$signing_keychain]} == 0 )); then
-        security list-keychains -d user -s "$signing_keychain" "${existing_keychains[@]}"
-    fi
 
     signing_identity="$(
         security find-identity -v -p codesigning "$signing_keychain" |
